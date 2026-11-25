@@ -110,7 +110,7 @@
   <section class="card">
     <h2>Growth chamber · looking down the c‑axis</h2>
     <div id="chamberWrap">
-      <canvas id="chamber" width="560" height="560" aria-label="Snowflake growth chamber"></canvas>
+      <canvas id="chamber" width="800" height="800" aria-label="Snowflake growth chamber"></canvas>
       <div id="status">Growing…</div>
       <div id="chamberLegend"><span id="legTitle"></span><div class="bar" id="legBar"></div><div class="ends"><span id="legA"></span><span id="legB"></span></div></div>
     </div>
@@ -211,98 +211,99 @@
 // Snowflake growth core: Gravner–Griffeath style hexagonal vapour-diffusion model
 // with a held far-field vapour density (humidity) and temperature-dependent kinetics.
 (function (root) {
+  // The crystal is 6-fold symmetric, so only one 60-degree sector (axial q>=1, r>=0, plus the
+  // origin) is computed. Cells just outside the sector ("ghosts") are refreshed from their
+  // rotated equivalents, and unfold() copies the sector to the whole grid for drawing.
   function makeSim(N) {
     const c0 = (N - 1) >> 1;
     const size = N * N;
     const S = {
       N, c0,
-      a: new Uint8Array(size),      // attached (ice) flag
-      b: new Float32Array(size),    // boundary (quasi-liquid) mass
-      c: new Float32Array(size),    // crystal mass
-      d: new Float32Array(size),    // vapour mass
-      d2: new Float32Array(size),
-      rr: new Float32Array(size),   // distance from centre (cell units)
-      tAt: new Float32Array(size),  // time attached
-      TAt: new Float32Array(size),  // temperature when attached
-      nb: new Uint8Array(size),
-      att: new Int32Array(size),
-      bnd: new Int32Array(size),
-      steps: 0, radius: 1,
+      a: new Uint8Array(size), b: new Float32Array(size), c: new Float32Array(size), d: new Float32Array(size),
+      d2: new Float32Array(size), rr: new Float32Array(size), tAt: new Float32Array(size), TAt: new Float32Array(size),
+      nb: new Uint8Array(size), att: new Int32Array(size), bnd: new Int32Array(size), canon: new Int32Array(size),
+      steps: 0, radius: 1, time: 0,
       params: { rho: 0.6, beta: 1.6, alpha: 0.4, theta: 0.025, kappa: 0.0025, mu: 0.015, gamma: 0.0005 },
     };
     const s3 = Math.sqrt(3) / 2;
-    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
-      const x = (i - c0) + (j - c0) / 2, y = (j - c0) * s3;
-      S.rr[j * N + i] = Math.sqrt(x * x + y * y);
-    }
     S.maxR = c0 - 3;
+    const comp = [], ghostSet = new Set();
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const k = j * N + i, q = i - c0, r = j - c0;
+      const x = q + r / 2, y = r * s3;
+      S.rr[k] = Math.sqrt(x * x + y * y);
+      let qq = q, rq = r, n = 0;
+      if (!(qq === 0 && rq === 0)) while (!(qq >= 1 && rq >= 0)) { const t = qq; qq = -rq; rq = t + rq; if (++n > 6) throw new Error('sector'); }
+      S.canon[k] = (rq + c0) * N + (qq + c0);
+      if (S.canon[k] === k && S.rr[k] <= S.maxR) comp.push(k);
+    }
+    comp.sort((p, q) => S.rr[p] - S.rr[q]);
+    S.comp = Int32Array.from(comp);
+    S.compR = Float32Array.from(comp.map(k => S.rr[k]));
+    for (const k of comp) for (const o of [-1, 1, -N, N, 1 - N, N - 1]) { const g = k + o; if (S.canon[g] !== g) ghostSet.add(g); }
+    S.ghost = Int32Array.from(ghostSet);
+    S.ghostSrc = Int32Array.from([...ghostSet].map(g => S.canon[g]));
     reset(S, 0.6);
     return S;
   }
-
   function reset(S, rho) {
-    S.a.fill(0); S.b.fill(0); S.c.fill(0); S.d.fill(rho); S.tAt.fill(0); S.TAt.fill(0);
+    S.a.fill(0); S.b.fill(0); S.c.fill(0); S.d.fill(rho); S.tAt.fill(0); S.TAt.fill(0); S.nb.fill(0);
     const k = S.c0 * S.N + S.c0;
     S.a[k] = 1; S.c[k] = 1; S.d[k] = 0;
     S.steps = 0; S.radius = 1; S.time = 0;
   }
-
-  // one model step; T = current temperature (for history colouring)
+  function syncD(S) { const g = S.ghost, src = S.ghostSrc, d = S.d; for (let m = 0; m < g.length; m++) d[g[m]] = d[src[m]]; }
+  function syncA(S) { const g = S.ghost, src = S.ghostSrc, a = S.a; for (let m = 0; m < g.length; m++) a[g[m]] = a[src[m]]; }
+  function farR(S) { return Math.min(S.maxR, S.radius + 20 + 0.5 * S.radius); }
+  function count(S, R) { // number of computed cells with radius <= R
+    const cr = S.compR; let lo = 0, hi = cr.length;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (cr[m] <= R) lo = m + 1; else hi = m; }
+    return lo;
+  }
   function step(S, T) {
-    const { N, a, b, c, rr, nb } = S;
-    let d = S.d, d2 = S.d2;
-    const p = S.params;
-    const Rfar = Math.min(S.maxR, S.radius + 20 + 0.5 * S.radius);
-    const W = Math.min(S.c0 - 1, Math.ceil(Rfar * 1.16) + 2);
-    const j0 = S.c0 - W, j1 = S.c0 + W, i0 = S.c0 - W, i1 = S.c0 + W;
-    const rho = p.rho;
+    const { N, a, b, c, d, d2, rr, nb, comp } = S;
+    const p = S.params, rho = p.rho;
+    const Rfar = farR(S), n = count(S, Rfar + 2.5);
+    syncD(S);
     // 1. diffusion (crystal cells reflect)
-    for (let j = j0; j <= j1; j++) {
-      let k = j * N + i0;
-      for (let i = i0; i <= i1; i++, k++) {
-        if (a[k]) { d2[k] = 0; continue; }
-        const r = rr[k];
-        if (r > Rfar) { d2[k] = rho; continue; }
-        const dk = d[k];
-        let s = dk;
-        let q = k - 1; s += a[q] ? dk : d[q];
-        q = k + 1; s += a[q] ? dk : d[q];
-        q = k - N; s += a[q] ? dk : d[q];
-        q = k + N; s += a[q] ? dk : d[q];
-        q = k + 1 - N; s += a[q] ? dk : d[q];
-        q = k - 1 + N; s += a[q] ? dk : d[q];
-        d2[k] = s / 7;
-      }
+    for (let m = 0; m < n; m++) {
+      const k = comp[m];
+      if (a[k]) { d2[k] = 0; continue; }
+      if (rr[k] > Rfar) { d2[k] = rho; continue; }
+      const dk = d[k];
+      let s = dk, q;
+      q = k - 1; s += a[q] ? dk : d[q];
+      q = k + 1; s += a[q] ? dk : d[q];
+      q = k - N; s += a[q] ? dk : d[q];
+      q = k + N; s += a[q] ? dk : d[q];
+      q = k + 1 - N; s += a[q] ? dk : d[q];
+      q = k - 1 + N; s += a[q] ? dk : d[q];
+      d2[k] = s / 7;
     }
-    S.d = d2; S.d2 = d; d = S.d;
-    // 2. freezing on boundary cells; collect boundary
-    const kap = p.kappa;
+    for (let m = 0; m < n; m++) { const k = comp[m]; d[k] = d2[k]; }
+    syncD(S);
+    // 2. freezing on boundary cells
+    const kap = p.kappa, bnd = S.bnd;
     let nB = 0;
-    const bnd = S.bnd;
-    for (let j = j0; j <= j1; j++) {
-      let k = j * N + i0;
-      for (let i = i0; i <= i1; i++, k++) {
-        if (a[k]) continue;
-        const n = a[k - 1] + a[k + 1] + a[k - N] + a[k + N] + a[k + 1 - N] + a[k - 1 + N];
-        nb[k] = n;
-        if (n === 0) continue;
-        bnd[nB++] = k;
-        const dk = d[k];
-        b[k] += (1 - kap) * dk;
-        c[k] += kap * dk;
-        d[k] = 0;
-      }
+    for (let m = 0; m < n; m++) {
+      const k = comp[m];
+      if (a[k]) continue;
+      const nn = a[k - 1] + a[k + 1] + a[k - N] + a[k + N] + a[k + 1 - N] + a[k - 1 + N];
+      nb[k] = nn;
+      if (nn === 0) continue;
+      bnd[nB++] = k;
+      const dk = d[k];
+      b[k] += (1 - kap) * dk; c[k] += kap * dk; d[k] = 0;
     }
-    // 3. attachment (decide synchronously)
-    const beta = p.beta, alpha = p.alpha, theta = p.theta;
+    syncD(S);
+    // 3. attachment (decided synchronously)
+    const beta = p.beta, alpha = p.alpha, theta = p.theta, att = S.att;
     let nA = 0;
-    const att = S.att;
     for (let m = 0; m < nB; m++) {
-      const k = bnd[m];
-      const n = nb[k];
+      const k = bnd[m], nn = nb[k];
       let ok = false;
-      if (n >= 4) ok = true;
-      else if (n === 3) {
+      if (nn >= 4) ok = true;
+      else if (nn === 3) {
         if (b[k] >= 1) ok = true;
         else if (b[k] >= alpha) {
           const sd = d[k] + d[k - 1] + d[k + 1] + d[k - N] + d[k + N] + d[k + 1 - N] + d[k - 1 + N];
@@ -311,14 +312,14 @@
       } else if (b[k] >= beta) ok = true;
       if (ok) att[nA++] = k;
     }
-    const time = S.time;
     for (let m = 0; m < nA; m++) {
       const k = att[m];
       a[k] = 1; c[k] += b[k]; b[k] = 0; nb[k] = 0;
-      S.tAt[k] = time; S.TAt[k] = T;
+      S.tAt[k] = S.time; S.TAt[k] = T;
       if (rr[k] > S.radius) S.radius = rr[k];
     }
-    // 4. melting / sublimation of boundary layer back to vapour
+    syncA(S);
+    // 4. melting / sublimation of the boundary layer
     const mu = p.mu, gam = p.gamma;
     for (let m = 0; m < nB; m++) {
       const k = bnd[m];
@@ -328,8 +329,20 @@
     }
     S.steps++;
   }
-
-  const api = { makeSim, reset, step };
+  // copy the computed sector to all six sectors (for drawing / sampling)
+  function unfold(S) {
+    const { N, c0, canon, a, b, c, d, nb, tAt, TAt, rr } = S;
+    const R = Math.min(S.maxR + 2, farR(S) + 4), W = Math.min(c0, Math.ceil(R * 1.16) + 2);
+    for (let j = c0 - W; j <= c0 + W; j++) {
+      let k = j * N + c0 - W;
+      for (let i = -W; i <= W; i++, k++) {
+        const s = canon[k];
+        if (s === k || rr[k] > R) continue;
+        a[k] = a[s]; b[k] = b[s]; c[k] = c[s]; d[k] = d[s]; nb[k] = nb[s]; tAt[k] = tAt[s]; TAt[k] = TAt[s];
+      }
+    }
+  }
+  const api = { makeSim, reset, step, unfold };
   if (typeof module !== 'undefined') module.exports = api; else root.SnowSim = api;
 })(this);
 
@@ -373,9 +386,10 @@
 (() => {
 'use strict';
 const Sim = window.SnowSim;
-const N = 201;
+const N = 401;
 const sim = Sim.makeSim(N);
 const MAXR = sim.maxR;
+const SC = MAXR / 97; // grid scale relative to the original 201-cell grid
 
 // ---------- physical helpers ----------
 const T_MIN = -30, T_MAX = 0, S_MIN = 0, S_MAX = 0.35;
@@ -392,7 +406,7 @@ const state = {
   journey: null, time: 0, trail: [],
 };
 let stepsAcc = 0, gNum = 0.01, gDen = 1, Rprev = 1;
-const side = { layers: [], halfH: 0, dz: 0.5 };
+const side = { layers: [], halfH: 0, dz: 0.5 * SC };
 
 function resetSide() {
   side.layers = [{ w: 1.2, T: state.T, t: 0 }, { w: 1.2, T: state.T, t: 0 }, { w: 1.2, T: state.T, t: 0 }];
@@ -402,6 +416,7 @@ function newCrystal() {
   const p = Sim.mapParams(state.T, state.S);
   Object.assign(sim.params, p);
   Sim.reset(sim, p.rho);
+  Sim.unfold(sim);
   state.time = 0; state.done = false; state.trail = [];
   stepsAcc = 0; gNum = 0.01; gDen = 1; Rprev = 1;
   resetSide();
@@ -465,10 +480,10 @@ function spawn(pt, anywhere) {
 }
 function updateParticles(dt) {
   const s = state.S / 0.3;
-  const want = Math.round(30 + 520 * clamp(s, 0, 1.2));
+  const want = Math.round(50 + 800 * clamp(s, 0, 1.2));
   while (particles.length < want) { const p = {}; spawn(p, true); particles.push(p); }
   if (particles.length > want) particles.length = want;
-  const vel = (0.6 + 2.2 * (state.T + 30) / 30) * 60 * dt; // warmer -> faster thermal jiggle
+  const vel = (0.6 + 2.2 * (state.T + 30) / 30) * 60 * dt * CW / 560; // warmer -> faster thermal jiggle
   for (const p of particles) {
     p.x += (Math.random() - 0.5) * 2 * vel; p.y += (Math.random() - 0.5) * 2 * vel; p.life += dt;
     const dx = p.x - CW / 2, dy = p.y - CW / 2;
@@ -521,7 +536,7 @@ function renderChamber() {
   cctx.putImageData(img, 0, 0);
   // vapour particles
   cctx.fillStyle = `rgba(${haze[0] | 0},${haze[1] | 0},${haze[2] | 0},0.55)`;
-  for (const p of particles) cctx.fillRect(p.x - 0.9, p.y - 0.9, 1.8, 1.8);
+  for (const p of particles) cctx.fillRect(p.x - 1.2, p.y - 1.2, 2.4, 2.4);
 }
 
 // ---------- side view ----------
@@ -540,7 +555,7 @@ function updateSide(dt, p, dR) {
   }
     // basal growth lengthens the c-axis
   if (side.halfH < MAXR * 1.05) {
-    side.acc += 2.2 * p.basal * state.speed * dt;
+    side.acc += SC * 2.2 * p.basal * state.speed * dt;
     while (side.acc >= side.dz) {
       side.acc -= side.dz;
       const last = L[L.length - 1];
@@ -881,7 +896,7 @@ function frame(now) {
     Object.assign(sim.params, p);
     const drive = Math.min(1.2, state.S / 0.3);
     // target in-plane growth speed (cells per second); the step rate adapts to deliver it
-    const target = state.speed * (0.35 + 4.5 * drive) * p.inPlane;
+    const target = SC * state.speed * (0.35 + 4.5 * drive) * p.inPlane;
     const g = clamp(gNum / gDen, 2e-5, 0.3);
     stepsAcc += target * dt / g;
     const want = Math.floor(stepsAcc);
@@ -890,6 +905,7 @@ function frame(now) {
     let n = 0;
     while (n < want && (n & 7 || performance.now() - t0 < 11)) { Sim.step(sim, state.T); n++; }
     stepsAcc = n < want ? 0 : stepsAcc - n;
+    if (n) Sim.unfold(sim);
     const dR = sim.radius - Rprev; Rprev = sim.radius;
     gNum = gNum * 0.985 + dR; gDen = gDen * 0.985 + n;
     state.time += dt * state.speed;
@@ -899,7 +915,7 @@ function frame(now) {
       if (!L || Math.abs(L.T - state.T) > 0.05 || Math.abs(L.S - state.S) > 0.001) { state.trail.push({ T: state.T, S: state.S }); if (state.trail.length > 600) state.trail.shift(); diagramDirty = true; } }
     if (sim.radius >= MAXR * 0.93) { state.done = true; }
     statusEl.textContent = state.done ? '❄ Fully grown. Press “New crystal” to start again'
-      : `Growing · ${(state.time).toFixed(0)} s · diameter ≈ ${(2 * sim.radius * 0.025).toFixed(2)} mm`;
+      : `Growing · ${(state.time).toFixed(0)} s · diameter ≈ ${(2 * sim.radius * 0.025 / SC).toFixed(2)} mm`;
   } else if (!state.running && !state.done) statusEl.textContent = 'Paused';
   updateParticles(dt);
   renderChamber();
