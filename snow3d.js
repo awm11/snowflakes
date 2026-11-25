@@ -111,6 +111,11 @@ function crystalCanvases(G, Rv) {
     bi.data[o] = bi.data[o + 1] = bi.data[o + 2] = g; bi.data[o + 3] = 255;
   }
   col.getContext('2d').putImageData(ci, 0, 0); bmp.getContext('2d').putImageData(bi, 0, 0);
+  { // soften the bump map: cell-sized steps make the bump shader produce extreme normals (black specks)
+    const tmp = document.createElement('canvas'); tmp.width = tmp.height = G;
+    const tg = tmp.getContext('2d'); tg.filter = 'blur(1.5px)'; tg.drawImage(bmp, 0, 0);
+    const bg = bmp.getContext('2d'); bg.clearRect(0, 0, G, G); bg.drawImage(tmp, 0, 0);
+  }
   return { col, bmp, mask, tA, rP };
 }
 
@@ -124,7 +129,8 @@ function shapesFromMask(mask, G, Rv, rad) {
   const { traceLoops, dpClosed, area } = S;
   const get = (X, Y) => (X >= 0 && Y >= 0 && X < G && Y < G && mask[Y * G + X]) ? 1 : 0;
   const h = rad == null ? G : Math.min(G, Math.ceil(rad / Rv * G / 2) + 3), lo = Math.max(0, (G >> 1) - h), hi = Math.min(G - 1, (G >> 1) + h);
-  let loops = traceLoops(get, lo, hi, lo, hi).map(L => chaikin(dpClosed(L, 0.9))).filter(L => L.length >= 3 && Math.abs(area(L)) > 2);
+  const dedupe = L => L.filter((p, i) => { const q = L[(i + 1) % L.length]; return Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) > 0.05; });
+  let loops = traceLoops(get, lo, hi, lo, hi).map(L => dedupe(chaikin(dpClosed(L, 0.9)))).filter(L => L.length >= 3 && Math.abs(area(L)) > 2);
   const toW = ([X, Y]) => new THREE.Vector2((X / G * 2 - 1) * Rv, (1 - Y / G * 2) * Rv);
   const polys = loops.map(L => { const pts = L.map(toW); return { pts, a: THREE.ShapeUtils.area(pts) }; });
   if (!polys.length) return [];
@@ -150,7 +156,7 @@ function iceMaterial(extra) {
   // clear, refractive ice (refractive index 1.31)
   return new THREE.MeshPhysicalMaterial(Object.assign({
     color: 0xffffff, roughness: 0.05, metalness: 0, transmission: 1, thickness: 4, ior: 1.31,
-    clearcoat: 1, clearcoatRoughness: 0.03, specularIntensity: 1, envMapIntensity: 1.2, side: THREE.DoubleSide,
+    clearcoat: 1, clearcoatRoughness: 0.03, specularIntensity: 1, envMapIntensity: 1.2, side: THREE.FrontSide,
   }, extra));
 }
 
@@ -166,7 +172,7 @@ function build() {
   const mapTex = new THREE.CanvasTexture(col); mapTex.colorSpace = THREE.SRGBColorSpace;
   const bumpTex = new THREE.CanvasTexture(bmp);
   for (const t of [mapTex, bumpTex]) { t.repeat.set(1 / (2 * Rv), 1 / (2 * Rv)); t.offset.set(0.5, 0.5); t.anisotropy = 4; }
-  const plateMat = iceMaterial({ map: mapTex, bumpMap: bumpTex, bumpScale: 6 });
+  const plateMat = iceMaterial({ map: mapTex, bumpMap: bumpTex, bumpScale: 2 });
 
   // Combine the two views. The side view gives, for every slice along the c-axis, its width and
   // the time it last grew sideways (tw). That slice's cross-section is the top-view crystal as it
@@ -201,7 +207,11 @@ function build() {
       mat = matCache[key] || (matCache[key] = iceMaterial({ color: new THREE.Color(c[0] / 255, c[1] / 255, c[2] / 255) }));
     }
     const mk = (yc, h) => {
-      const geo = new THREE.ExtrudeGeometry(sh, { depth: h, bevelEnabled: h > 1.5, bevelThickness: Math.min(h * 0.15, 2), bevelSize: Math.min(R * 0.003, h * 0.2, 1.5), bevelSegments: 1, curveSegments: 1 });
+      const hh = Math.max(h * 0.985, h - 0.3);   // hair-line gap between stacked slabs: no z-fighting
+      const geo = new THREE.ExtrudeGeometry(sh, { depth: hh, bevelEnabled: false, curveSegments: 1 });
+      const nrm = geo.attributes.normal.array;
+      for (let i = 0; i < nrm.length; i += 3) if (!(Math.abs(nrm[i]) + Math.abs(nrm[i + 1]) + Math.abs(nrm[i + 2]) > 0)) { nrm[i] = 0; nrm[i + 1] = 0; nrm[i + 2] = 1; }
+      h = hh;
       geo.translate(0, 0, -h / 2);
       const m = new THREE.Mesh(geo, mat); m.rotation.x = -Math.PI / 2; m.position.y = yc; group.add(m);
     };
