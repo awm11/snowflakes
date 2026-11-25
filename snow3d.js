@@ -12,23 +12,36 @@ const note = document.getElementById('t3Note');
 let renderer, scene, camera, controls, group, visible = false, built = false, lastPlate = null;
 // render only when something changes; adapt pixel density to keep frames quick
 let needsRender = true, dpr = 1, maxDpr = 1, frameEma = 16, lastFrame = 0, framesSince = 0;
-const opts = { colour: 'ice', thick: 1, spin: true };
+const opts = { colour: 'ice', thick: 1, spin: true, back: 0.5 };
 
+// Backlight: the crystal sits in front of a lamp glow, as under a microscope. The glow is part of
+// the background, so the refractive ice bends it through the branches and edges.
+function setBacklight(b) {
+  const W = 512, c = document.createElement('canvas'); c.width = c.height = W;
+  const g = c.getContext('2d');
+  const gr = g.createLinearGradient(0, 0, 0, W);                       // soft blue backdrop
+  gr.addColorStop(0, '#9fb3e8'); gr.addColorStop(0.55, '#5f78c8'); gr.addColorStop(1, '#2c3a7a');
+  g.fillStyle = gr; g.fillRect(0, 0, W, W);
+  if (b > 0) {                                                         // lamp glow behind the crystal
+    const rg = g.createRadialGradient(W / 2, W / 2, 0, W / 2, W / 2, W * (0.25 + 0.35 * b));
+    rg.addColorStop(0, `rgba(255,255,255,${Math.min(1, 0.35 + 0.65 * b)})`);
+    rg.addColorStop(0.35, `rgba(225,235,255,${0.55 * b})`);
+    rg.addColorStop(1, 'rgba(200,215,255,0)');
+    g.fillStyle = rg; g.fillRect(0, 0, W, W);
+  }
+  if (scene.background && scene.background.dispose) scene.background.dispose();
+  scene.background = new THREE.CanvasTexture(c); scene.background.colorSpace = THREE.SRGBColorSpace;
+  renderer.toneMappingExposure = 0.85 + 0.45 * b;
+  needsRender = true;
+}
 function init() {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, preserveDrawingBuffer: true });
   maxDpr = Math.min(1.5, window.devicePixelRatio || 1); dpr = maxDpr;
   renderer.setPixelRatio(dpr);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.85;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   scene = new THREE.Scene();
-  { // soft blue backdrop, like a photomicrograph – transmission refracts this through the ice
-    const c = document.createElement('canvas'); c.width = 16; c.height = 512;
-    const g = c.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 512);
-    gr.addColorStop(0, '#9fb3e8'); gr.addColorStop(0.55, '#5f78c8'); gr.addColorStop(1, '#2c3a7a');
-    g.fillStyle = gr; g.fillRect(0, 0, 16, 512);
-    scene.background = new THREE.CanvasTexture(c); scene.background.colorSpace = THREE.SRGBColorSpace;
-  }
+  setBacklight(opts.back);
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
   camera = new THREE.PerspectiveCamera(35, 1, 1, 20000);
@@ -230,6 +243,8 @@ function seg(id, cb) {
 }
 seg('t3Colour', v => { opts.colour = v; build(); });
 seg('t3Thick', v => { opts.thick = +v; build(); });
+const backEl = document.getElementById('t3Back'), backVal = document.getElementById('t3BackVal');
+backEl.addEventListener('input', () => { opts.back = backEl.value / 100; backVal.textContent = backEl.value + '%'; if (renderer) setBacklight(opts.back); });
 document.getElementById('t3Refresh').onclick = () => build();
 document.getElementById('t3Reset').onclick = () => { resetNext = true; build(); };
 const spinBtn = document.getElementById('t3Spin');
