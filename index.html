@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grow a Snowflake | Alex Moore Physics</title>
+<meta name="description" content="Interactive snowflake growth simulation: steer temperature and humidity on the Nakaya diagram and watch an ice crystal grow.">
+<style>
+  :root {
+    --bg: #0b1226; --panel: #121c38; --panel2: #18244a; --line: #2a3a6a;
+    --text: #e8eefc; --muted: #9fb0d8; --accent: #7cc4ff; --accent2: #ffd27c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: radial-gradient(ellipse at top, #172452 0%, var(--bg) 60%); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; min-height: 100vh; }
+  header { max-width: 1240px; margin: 0 auto; padding: 22px 20px 6px; }
+  h1 { margin: 0; font-size: 28px; letter-spacing: .3px; }
+  header p { margin: 4px 0 0; color: var(--muted); max-width: 820px; }
+  main { max-width: 1240px; margin: 0 auto; padding: 14px 20px 30px; display: grid; gap: 18px;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); align-items: start; }
+  @media (max-width: 960px) { main { grid-template-columns: 1fr; } }
+  .card { background: linear-gradient(180deg, var(--panel2), var(--panel)); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+  #chamberWrap { position: relative; width: 100%; aspect-ratio: 1; border-radius: 50%; overflow: hidden;
+    box-shadow: 0 0 0 6px #0d1631, 0 0 0 7px #34467d, 0 10px 40px rgba(0,0,0,.5); }
+  #chamber { width: 100%; height: 100%; display: block; }
+  #status { position: absolute; left: 50%; top: 7%; transform: translateX(-50%); font-size: 13px; color: #fff;
+    background: rgba(5,10,25,.55); padding: 3px 10px; border-radius: 20px; white-space: nowrap; pointer-events: none; }
+  #chamberLegend { position: absolute; left: 50%; bottom: 6%; transform: translateX(-50%); font-size: 12px; color: #fff;
+    background: rgba(5,10,25,.6); padding: 4px 10px; border-radius: 10px; display: none; text-align: center; }
+  #chamberLegend .bar { width: 180px; height: 8px; border-radius: 4px; margin: 3px auto 1px; }
+  #chamberLegend .ends { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .btn { background: #22325f; color: var(--text); border: 1px solid #3a4f8c; border-radius: 9px; padding: 7px 12px;
+    font: inherit; font-size: 14px; cursor: pointer; transition: background .15s, border-color .15s; }
+  .btn:hover { background: #2b3f78; }
+  .btn.on { background: #2f6db5; border-color: #7cc4ff; }
+  .btn.primary { background: #2f6db5; border-color: #5fa8f0; }
+  .seg { display: inline-flex; border: 1px solid #3a4f8c; border-radius: 9px; overflow: hidden; }
+  .seg button { background: #1c2a52; color: var(--muted); border: 0; padding: 6px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+  .seg button + button { border-left: 1px solid #3a4f8c; }
+  .seg button.on { background: #2f6db5; color: #fff; }
+  .lbl { color: var(--muted); font-size: 13px; }
+  #sideWrap { margin-top: 14px; }
+  #side { width: 100%; height: 170px; display: block; border-radius: 10px; background: #0a1126; border: 1px solid var(--line); }
+  /* diagram + sliders */
+  #diagramGrid { position: relative; width: 100%; user-select: none; touch-action: none; }
+  #diagram { width: 100%; display: block; cursor: crosshair; touch-action: none; }
+  .slider { position: absolute; touch-action: none; outline: none; }
+  .slider .track { position: absolute; background: #2a3a6a; border-radius: 4px; }
+  .slider .fill { position: absolute; border-radius: 4px; }
+  .slider .thumb { position: absolute; width: 22px; height: 22px; border-radius: 50%; background: #fff;
+    border: 3px solid var(--c); box-shadow: 0 2px 8px rgba(0,0,0,.5); transform: translate(-50%, -50%); cursor: grab; }
+  .slider:focus-visible .thumb { box-shadow: 0 0 0 4px rgba(124,196,255,.5); }
+  .slider .bubble { position: absolute; transform: translate(-50%, -50%); font-size: 12px; font-weight: 600; color: #0b1226;
+    background: var(--c); padding: 1px 7px; border-radius: 8px; white-space: nowrap; pointer-events: none; }
+  #sT { --c: var(--accent); } #sS { --c: var(--accent2); }
+  .readouts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0 10px; }
+  .ro { background: #0f1833; border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; }
+  .ro .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
+  .ro .v { font-size: 18px; font-weight: 600; }
+  @media (max-width: 520px) { .readouts { grid-template-columns: repeat(2, 1fr); } }
+  #explain { background: #0f1833; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-height: 120px; }
+  #explain h3 { margin: 0 0 4px; font-size: 16px; color: var(--accent); }
+  #explain p { margin: 4px 0; color: #d3ddf5; font-size: 14px; }
+  .presets { margin-top: 10px; }
+  .presets .btn { font-size: 13px; padding: 5px 10px; }
+  details { margin-top: 12px; color: #c7d3f0; font-size: 14px; }
+  details summary { cursor: pointer; color: var(--accent); }
+  footer { max-width: 1240px; margin: 0 auto; padding: 0 20px 30px; color: #7387b8; font-size: 12.5px; }
+  footer a { color: #9cc7ff; }
+
+  .tabs { max-width: 1240px; margin: 10px auto 0; padding: 0 20px; display: flex; gap: 6px; }
+  .tab { background: transparent; color: var(--muted); border: 1px solid transparent; border-bottom: 0; padding: 9px 16px; font: inherit; font-size: 15px;
+    border-radius: 10px 10px 0 0; cursor: pointer; }
+  .tab.on { background: var(--panel2); color: var(--text); border-color: var(--line); }
+  .tab:not(.on):hover { color: var(--text); }
+  .hidden { display: none !important; }
+  #templateBox { background: #f4f6fb; border-radius: 10px; padding: 12px; display: flex; justify-content: center; }
+  #templateBox svg { max-height: 640px; width: auto; max-width: 100%; height: auto; }
+  #preview { width: 100%; aspect-ratio: 1; display: block; border-radius: 10px; background: radial-gradient(circle, #24407a, #0b1226 75%); }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
+  @media (max-width: 620px) { .steps { grid-template-columns: repeat(2, 1fr); } }
+  .stepc { background: #0f1833; border: 1px solid var(--line); border-radius: 10px; padding: 8px; font-size: 13px; color: #d3ddf5; }
+  .stepc svg { width: 100%; height: 110px; display: block; }
+  .stepc b { color: var(--accent); }
+  select.btn { padding: 6px 8px; }
+  #printSheet { display: none; }
+  @media print {
+    @page { size: A4 portrait; margin: 12mm; }
+    body { background: #fff !important; color: #000; }
+    body > *:not(#printSheet) { display: none !important; }
+    #printSheet { -webkit-print-color-adjust: exact; print-color-adjust: exact; display: block !important; font: 11pt/1.4 system-ui, sans-serif; color: #000; }
+    #printSheet .pwrap { display: flex; gap: 10mm; align-items: flex-start; }
+    #printSheet ol { margin: 0; padding-left: 5mm; }
+    #printSheet li { margin-bottom: 2mm; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>❄ Grow a Snowflake</h1>
+  <p>Steer the temperature and humidity of the growth chamber and watch an ice crystal grow. Drag the point on the morphology (Nakaya) diagram, use the sliders, or press <b>Auto‑drift</b> to send the crystal on a journey through a changing cloud. The final shape records every condition it passed through.</p>
+</header>
+<nav class="tabs" role="tablist">
+  <button class="tab on" data-tab="grow" role="tab">❄ Grow</button>
+  <button class="tab" data-tab="paper" role="tab">✂ Paper snowflake</button>
+</nav>
+<main id="growTab">
+  <section class="card">
+    <h2>Growth chamber · looking down the c‑axis</h2>
+    <div id="chamberWrap">
+      <canvas id="chamber" width="560" height="560" aria-label="Snowflake growth chamber"></canvas>
+      <div id="status">Growing…</div>
+      <div id="chamberLegend"><span id="legTitle"></span><div class="bar" id="legBar"></div><div class="ends"><span id="legA"></span><span id="legB"></span></div></div>
+    </div>
+    <div class="row" style="margin-top:14px; justify-content:space-between">
+      <div class="row">
+        <button class="btn primary" id="playBtn">⏸ Pause</button>
+        <button class="btn" id="resetBtn">↺ New crystal</button>
+        <button class="btn" id="saveBtn">⤓ Save image</button>
+      </div>
+      <div class="row"><span class="lbl">Speed</span>
+        <div class="seg" id="speedSeg"><button data-v="0.5">½×</button><button data-v="1" class="on">1×</button><button data-v="2">2×</button><button data-v="4">4×</button></div>
+      </div>
+    </div>
+    <div class="row" style="margin-top:10px"><span class="lbl">Colour ice by</span>
+      <div class="seg" id="viewSeg"><button data-v="ice" class="on">Ice</button><button data-v="temp">Temperature when formed</button><button data-v="time">Time formed</button></div>
+    </div>
+    <div id="sideWrap">
+      <h2>Side view · thickness along the c‑axis</h2>
+      <canvas id="side" width="560" height="170" aria-label="Side view of crystal"></canvas>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Conditions · morphology diagram</h2>
+    <div id="diagramGrid">
+      <canvas id="diagram" width="560" height="430" aria-label="Morphology diagram: drag to set temperature and humidity"></canvas>
+      <div class="slider" id="sS" role="slider" tabindex="0" aria-label="Humidity (excess vapour density)" aria-orientation="vertical"><div class="track"></div><div class="fill"></div><div class="thumb"></div><div class="bubble"></div></div>
+      <div class="slider" id="sT" role="slider" tabindex="0" aria-label="Temperature" aria-orientation="horizontal"><div class="track"></div><div class="fill"></div><div class="thumb"></div><div class="bubble"></div></div>
+    </div>
+    <div class="readouts">
+      <div class="ro"><div class="k">Temperature</div><div class="v" id="roT">–</div></div>
+      <div class="ro"><div class="k">Excess vapour</div><div class="v" id="roS">–</div></div>
+      <div class="ro"><div class="k">RH over ice</div><div class="v" id="roRHi">–</div></div>
+      <div class="ro"><div class="k">RH over water</div><div class="v" id="roRHw">–</div></div>
+    </div>
+    <div class="row">
+      <button class="btn" id="autoBtn">✦ Auto‑drift</button>
+      <span class="lbl" id="journeyLbl"></span>
+    </div>
+    <div class="presets row">
+      <span class="lbl">Try:</span>
+      <button class="btn" data-preset="plate">Hexagonal plate</button>
+      <button class="btn" data-preset="sector">Sectored plate</button>
+      <button class="btn" data-preset="stellar">Stellar dendrite</button>
+      <button class="btn" data-preset="fern">Fernlike dendrite</button>
+      <button class="btn" data-preset="column">Column</button>
+      <button class="btn" data-preset="needle">Needle</button>
+      <button class="btn" data-preset="capped">Capped column ▶</button>
+      <button class="btn" data-preset="tipped">Plate‑tipped arms ▶</button>
+    </div>
+    <div id="explain" style="margin-top:12px"></div>
+    <details>
+      <summary>How the model works</summary>
+      <p>The crystal grows on a hexagonal grid using a cellular automaton based on the Gravner–Griffeath model of snow‑crystal growth. Water vapour diffuses through the chamber and is held at a fixed density far from the crystal, which you set with the humidity control. At the crystal's edge, vapour condenses into a thin boundary layer. A cell freezes onto the crystal once enough mass has built up. Sites with more ice neighbours attach more easily, and that's what makes the facets flat.</p>
+      <p>Corners and tips stick further out into the vapour, so they collect more of it. At high supersaturation this runs away into branches (the Mullins–Sekerka instability). At low supersaturation, attachment is the slow step, so the facets win and the crystal stays a solid hexagon.</p>
+      <p>Temperature changes the relative growth rates of the basal facets (top and bottom) and the prism facets (the six sides). Here that's done by tuning the attachment threshold and the in‑plane growth rate against a smoothed version of the measured habit changes. Plates are favoured near −2 °C and −15 °C, and columns near −5 °C and below about −22 °C. The side view is a simpler 1‑D model of thickness along the c‑axis. It isn't a full 3‑D simulation, but it shows the habit changes and records the crystal's history.</p>
+      <p>Real snowflakes are about 1–5 mm across and take roughly 10–30 minutes to grow as they fall. The time scale here is sped up and the parameter mapping is qualitative.</p>
+    </details>
+  </section>
+</main>
+
+<main id="paperTab" class="hidden">
+  <section class="card">
+    <h2>Cutting template · one 30° wedge of your crystal</h2>
+    <div id="templateBox"></div>
+    <div class="row" style="margin-top:12px; justify-content:space-between">
+      <div class="row"><span class="lbl">Detail</span>
+        <div class="seg" id="detailSeg"><button data-v="7">Simple</button><button data-v="4" class="on">Medium</button><button data-v="2.2">Fine</button></div>
+      </div>
+      <div class="row"><span class="lbl">Paper</span>
+        <select class="btn" id="paperSel">
+          <option value="150">15 cm square (origami)</option>
+          <option value="200" selected>20 cm square (from A4/Letter)</option>
+          <option value="280">28 cm square (from A3)</option>
+        </select>
+      </div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn" id="refreshBtn">↻ Use current crystal</button>
+      <button class="btn primary" id="printBtn">🖨 Print template</button>
+      <span class="lbl" id="paperNote"></span>
+    </div>
+  </section>
+  <section class="card">
+    <h2>What you'll get when you unfold it</h2>
+    <canvas id="preview" width="560" height="560"></canvas>
+    <h2 style="margin-top:14px">How to fold and cut</h2>
+    <div class="steps" id="steps"></div>
+    <p class="lbl" style="margin-top:10px">Tips: thin paper (printer paper or origami paper) works best, because you're cutting through 12 layers. Grey areas are cut away. Either folded edge can be the "arm" edge, because both are mirror lines, so you get the same snowflake either way. Keep at least a little paper along both folds, otherwise the snowflake falls apart.</p>
+  </section>
+</main>
+<div id="printSheet"></div>
+<footer>
+  Based on Nakaya's morphology diagram (1954) and K. G. Libbrecht's work on snow crystal growth. Model after J. Gravner &amp; D. Griffeath, “Modeling snow‑crystal growth: a three‑dimensional mesoscopic approach”, <i>Phys. Rev. E</i> 79 (2009), in its 2‑D hexagonal form.
+</footer>
+
+<script>
+// Snowflake growth core: Gravner–Griffeath style hexagonal vapour-diffusion model
+// with a held far-field vapour density (humidity) and temperature-dependent kinetics.
+(function (root) {
+  function makeSim(N) {
+    const c0 = (N - 1) >> 1;
+    const size = N * N;
+    const S = {
+      N, c0,
+      a: new Uint8Array(size),      // attached (ice) flag
+      b: new Float32Array(size),    // boundary (quasi-liquid) mass
+      c: new Float32Array(size),    // crystal mass
+      d: new Float32Array(size),    // vapour mass
+      d2: new Float32Array(size),
+      rr: new Float32Array(size),   // distance from centre (cell units)
+      tAt: new Float32Array(size),  // time attached
+      TAt: new Float32Array(size),  // temperature when attached
+      nb: new Uint8Array(size),
+      att: new Int32Array(size),
+      bnd: new Int32Array(size),
+      steps: 0, radius: 1,
+      params: { rho: 0.6, beta: 1.6, alpha: 0.4, theta: 0.025, kappa: 0.0025, mu: 0.015, gamma: 0.0005 },
+    };
+    const s3 = Math.sqrt(3) / 2;
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const x = (i - c0) + (j - c0) / 2, y = (j - c0) * s3;
+      S.rr[j * N + i] = Math.sqrt(x * x + y * y);
+    }
+    S.maxR = c0 - 3;
+    reset(S, 0.6);
+    return S;
+  }
+
+  function reset(S, rho) {
+    S.a.fill(0); S.b.fill(0); S.c.fill(0); S.d.fill(rho); S.tAt.fill(0); S.TAt.fill(0);
+    const k = S.c0 * S.N + S.c0;
+    S.a[k] = 1; S.c[k] = 1; S.d[k] = 0;
+    S.steps = 0; S.radius = 1; S.time = 0;
+  }
+
+  // one model step; T = current temperature (for history colouring)
+  function step(S, T) {
+    const { N, a, b, c, rr, nb } = S;
+    let d = S.d, d2 = S.d2;
+    const p = S.params;
+    const Rfar = Math.min(S.maxR, S.radius + 20 + 0.5 * S.radius);
+    const W = Math.min(S.c0 - 1, Math.ceil(Rfar * 1.16) + 2);
+    const j0 = S.c0 - W, j1 = S.c0 + W, i0 = S.c0 - W, i1 = S.c0 + W;
+    const rho = p.rho;
+    // 1. diffusion (crystal cells reflect)
+    for (let j = j0; j <= j1; j++) {
+      let k = j * N + i0;
+      for (let i = i0; i <= i1; i++, k++) {
+        if (a[k]) { d2[k] = 0; continue; }
+        const r = rr[k];
+        if (r > Rfar) { d2[k] = rho; continue; }
+        const dk = d[k];
+        let s = dk;
+        let q = k - 1; s += a[q] ? dk : d[q];
+        q = k + 1; s += a[q] ? dk : d[q];
+        q = k - N; s += a[q] ? dk : d[q];
+        q = k + N; s += a[q] ? dk : d[q];
+        q = k + 1 - N; s += a[q] ? dk : d[q];
+        q = k - 1 + N; s += a[q] ? dk : d[q];
+        d2[k] = s / 7;
+      }
+    }
+    S.d = d2; S.d2 = d; d = S.d;
+    // 2. freezing on boundary cells; collect boundary
+    const kap = p.kappa;
+    let nB = 0;
+    const bnd = S.bnd;
+    for (let j = j0; j <= j1; j++) {
+      let k = j * N + i0;
+      for (let i = i0; i <= i1; i++, k++) {
+        if (a[k]) continue;
+        const n = a[k - 1] + a[k + 1] + a[k - N] + a[k + N] + a[k + 1 - N] + a[k - 1 + N];
+        nb[k] = n;
+        if (n === 0) continue;
+        bnd[nB++] = k;
+        const dk = d[k];
+        b[k] += (1 - kap) * dk;
+        c[k] += kap * dk;
+        d[k] = 0;
+      }
+    }
+    // 3. attachment (decide synchronously)
+    const beta = p.beta, alpha = p.alpha, theta = p.theta;
+    let nA = 0;
+    const att = S.att;
+    for (let m = 0; m < nB; m++) {
+      const k = bnd[m];
+      const n = nb[k];
+      let ok = false;
+      if (n >= 4) ok = true;
+      else if (n === 3) {
+        if (b[k] >= 1) ok = true;
+        else if (b[k] >= alpha) {
+          const sd = d[k] + d[k - 1] + d[k + 1] + d[k - N] + d[k + N] + d[k + 1 - N] + d[k - 1 + N];
+          if (sd < theta) ok = true;
+        }
+      } else if (b[k] >= beta) ok = true;
+      if (ok) att[nA++] = k;
+    }
+    const time = S.time;
+    for (let m = 0; m < nA; m++) {
+      const k = att[m];
+      a[k] = 1; c[k] += b[k]; b[k] = 0; nb[k] = 0;
+      S.tAt[k] = time; S.TAt[k] = T;
+      if (rr[k] > S.radius) S.radius = rr[k];
+    }
+    // 4. melting / sublimation of boundary layer back to vapour
+    const mu = p.mu, gam = p.gamma;
+    for (let m = 0; m < nB; m++) {
+      const k = bnd[m];
+      if (a[k]) continue;
+      const db = mu * b[k], dc = gam * c[k];
+      b[k] -= db; c[k] -= dc; d[k] += db + dc;
+    }
+    S.steps++;
+  }
+
+  const api = { makeSim, reset, step };
+  if (typeof module !== 'undefined') module.exports = api; else root.SnowSim = api;
+})(this);
+
+// ---- physical condition -> model parameter mapping ----
+(function (root) {
+  const api = (typeof module !== 'undefined') ? module.exports : root.SnowSim;
+  function interp(tab, x) {
+    if (x >= tab[0][0]) return tab[0][1];
+    for (let i = 1; i < tab.length; i++) {
+      if (x >= tab[i][0]) {
+        const [x0, y0] = tab[i - 1], [x1, y1] = tab[i];
+        const u = (x - x0) / (x1 - x0); const w = u * u * (3 - 2 * u);
+        return y0 + (y1 - y0) * w;
+      }
+    }
+    return tab[tab.length - 1][1];
+  }
+  // how strongly in-plane (prism-facet) growth is favoured: 1 = thin plates, 0 = columns
+  const PLATE = [[0, 0.45], [-1.5, 0.6], [-3, 0.35], [-4, 0.12], [-5, 0.03], [-6.5, 0.08], [-8.5, 0.2], [-10, 0.45], [-12, 0.85], [-14, 1.0], [-16, 1.0], [-18, 0.85], [-21, 0.55], [-24, 0.4], [-30, 0.35]];
+  // basal (c-axis) growth tendency: 1 = long columns/needles
+  const COLUMN = [[0, 0.15], [-2, 0.1], [-3, 0.45], [-4.5, 1.0], [-6, 0.95], [-8, 0.6], [-10, 0.2], [-12, 0.05], [-16, 0.03], [-19, 0.1], [-22, 0.35], [-25, 0.45], [-30, 0.45]];
+  api.plateFactor = T => interp(PLATE, T);
+  api.columnFactor = T => interp(COLUMN, T);
+  // T in degC, S = excess vapour density over ice in g/m^3
+  api.mapParams = function (T, S) {
+    const s = Math.max(0, S / 0.3);
+    const P = api.plateFactor(T);
+    const drive = Math.min(1.2, s);
+    return {
+      rho: 0.24 + 0.34 * drive,
+      beta: 1.25 + 2.3 * (1 - Math.min(1, P * drive * 1.4)),
+      alpha: 0.25, theta: 0.025, kappa: 0.003, mu: 0.02, gamma: 0.0003,
+      inPlane: 0.06 + 0.94 * P,          // in-plane growth rate multiplier
+      basal: api.columnFactor(T) * s,    // c-axis growth rate
+    };
+  };
+})(this);
+
+</script>
+<script>
+(() => {
+'use strict';
+const Sim = window.SnowSim;
+const N = 201;
+const sim = Sim.makeSim(N);
+const MAXR = sim.maxR;
+
+// ---------- physical helpers ----------
+const T_MIN = -30, T_MAX = 0, S_MIN = 0, S_MAX = 0.35;
+function pIce(Tc) { const T = Tc + 273.15; return Math.exp(9.550426 - 5723.265 / T + 3.53068 * Math.log(T) - 0.00728332 * T); }
+function pWater(Tc) { const T = Tc + 273.15; return Math.exp(54.842763 - 6763.22 / T - 4.21 * Math.log(T) + 0.000367 * T +
+  Math.tanh(0.0415 * (T - 218.8)) * (53.878 - 1331.22 / T - 9.44523 * Math.log(T) + 0.014025 * T)); }
+function rhoV(p, Tc) { return p / (461.5 * (Tc + 273.15)) * 1000; } // g/m^3
+function waterExcess(Tc) { return rhoV(pWater(Tc) - pIce(Tc), Tc); }
+
+// ---------- state ----------
+const state = {
+  T: -15, S: 0.2, running: true, speed: 1, view: 'ice', done: false,
+  auto: false, autoT0: 0, autoPh: [0, 0, 0, 0], autoFrom: null,
+  journey: null, time: 0, trail: [],
+};
+let stepsAcc = 0, gNum = 0.01, gDen = 1, Rprev = 1;
+const side = { layers: [], halfH: 0, dz: 0.5 };
+
+function resetSide() {
+  side.layers = [{ w: 1.2, T: state.T, t: 0 }, { w: 1.2, T: state.T, t: 0 }, { w: 1.2, T: state.T, t: 0 }];
+  side.halfH = side.layers.length * side.dz; side.acc = 0;
+}
+function newCrystal() {
+  const p = Sim.mapParams(state.T, state.S);
+  Object.assign(sim.params, p);
+  Sim.reset(sim, p.rho);
+  state.time = 0; state.done = false; state.trail = [];
+  stepsAcc = 0; gNum = 0.01; gDen = 1; Rprev = 1;
+  resetSide();
+  sideScale = null;
+  diagramDirty = true;
+}
+
+// ---------- chamber rendering ----------
+const chamber = document.getElementById('chamber');
+const cctx = chamber.getContext('2d');
+const CW = chamber.width;
+const img = cctx.createImageData(CW, CW);
+const pix = img.data;
+const pxIdx = new Int32Array(CW * CW);
+const pxR = new Float32Array(CW * CW);
+const viewR = MAXR * 1.04;
+const pxPerCell = CW / (2 * viewR);
+(function buildMap() {
+  const s3 = Math.sqrt(3) / 2;
+  for (let Y = 0; Y < CW; Y++) for (let X = 0; X < CW; X++) {
+    const x = (X + 0.5 - CW / 2) / pxPerCell, y = (Y + 0.5 - CW / 2) / pxPerCell;
+    const r = y / s3, q = x - r / 2;
+    let rx = Math.round(q), rz = Math.round(r), ry = Math.round(-q - r);
+    const dx = Math.abs(rx - q), dy = Math.abs(ry + q + r), dz = Math.abs(rz - r);
+    if (dx > dy && dx > dz) rx = -ry - rz; else if (dy <= dz) rz = -rx - ry;
+    const i = rx + sim.c0, j = rz + sim.c0;
+    const o = Y * CW + X;
+    pxR[o] = Math.sqrt(x * x + y * y);
+    pxIdx[o] = (i >= 1 && j >= 1 && i < N - 1 && j < N - 1) ? j * N + i : -1;
+  }
+})();
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+function clamp(x, a, b) { return x < a ? a : x > b ? b : x; }
+// temperature palette: 0 C warm gold -> cyan -> blue -> violet at -30
+const TPAL = [[0, [255, 214, 120]], [-5, [140, 236, 200]], [-10, [110, 210, 255]], [-15, [120, 150, 255]], [-22, [175, 120, 255]], [-30, [235, 120, 220]]];
+function tColor(T) {
+  for (let i = 1; i < TPAL.length; i++) if (T >= TPAL[i][0] || i === TPAL.length - 1) {
+    const [t0, c0] = TPAL[i - 1], [t1, c1] = TPAL[i]; const u = clamp((T - t0) / (t1 - t0), 0, 1);
+    return [lerp(c0[0], c1[0], u), lerp(c0[1], c1[1], u), lerp(c0[2], c1[2], u)];
+  }
+  return TPAL[0][1];
+}
+function timeColor(u) { // dark blue -> cyan -> white-gold
+  const st = [[0, [70, 90, 220]], [0.35, [60, 190, 240]], [0.7, [170, 245, 210]], [1, [255, 236, 150]]];
+  for (let i = 1; i < st.length; i++) if (u <= st[i][0]) {
+    const [a, ca] = st[i - 1], [b, cb] = st[i]; const v = (u - a) / (b - a);
+    return [lerp(ca[0], cb[0], v), lerp(ca[1], cb[1], v), lerp(ca[2], cb[2], v)];
+  }
+  return st[st.length - 1][1];
+}
+const tLUT = []; for (let T = 0; T >= -30; T -= 0.25) tLUT.push(tColor(T));
+const timeLUT = []; for (let i = 0; i <= 200; i++) timeLUT.push(timeColor(i / 200));
+
+// particles: vapour molecules (visual only)
+const particles = [];
+function spawn(pt, anywhere) {
+  const ang = Math.random() * Math.PI * 2;
+  const r = anywhere ? Math.sqrt(Math.random()) * CW * 0.5 : CW * 0.5;
+  pt.x = CW / 2 + Math.cos(ang) * r; pt.y = CW / 2 + Math.sin(ang) * r; pt.life = 0;
+}
+function updateParticles(dt) {
+  const s = state.S / 0.3;
+  const want = Math.round(30 + 520 * clamp(s, 0, 1.2));
+  while (particles.length < want) { const p = {}; spawn(p, true); particles.push(p); }
+  if (particles.length > want) particles.length = want;
+  const vel = (0.6 + 2.2 * (state.T + 30) / 30) * 60 * dt; // warmer -> faster thermal jiggle
+  for (const p of particles) {
+    p.x += (Math.random() - 0.5) * 2 * vel; p.y += (Math.random() - 0.5) * 2 * vel; p.life += dt;
+    const dx = p.x - CW / 2, dy = p.y - CW / 2;
+    if (dx * dx + dy * dy > CW * CW * 0.25) { spawn(p, false); continue; }
+    const X = p.x | 0, Y = p.y | 0;
+    const k = pxIdx[Y * CW + X];
+    if (k >= 0 && (sim.a[k] || sim.nb[k] > 0 && sim.b[k] > 0)) { p.hit = 0.25; spawn(p, false); }
+  }
+}
+
+function renderChamber() {
+  const T = state.T, s = clamp(state.S / 0.3, 0, 1.2);
+  const u = (T + 30) / 30; // 0 cold .. 1 warm
+  // chamber tint: cold indigo -> milder steel blue near 0 C
+  const bg = [lerp(6, 26, u), lerp(10, 44, u), lerp(34, 66, u)];
+  const haze = [lerp(150, 200, u), lerp(170, 225, u), lerp(255, 240, u)];
+  const hazeK = 0.55;
+  const rho = sim.params.rho;
+  const Rfar = Math.min(sim.maxR, sim.radius + 20 + 0.5 * sim.radius);
+  const a = sim.a, c = sim.c, d = sim.d, tAt = sim.tAt, TAt = sim.TAt, nb = sim.nb;
+  const view = state.view, tNow = Math.max(0.001, state.time);
+  for (let o = 0, p4 = 0; o < pxIdx.length; o++, p4 += 4) {
+    const k = pxIdx[o];
+    let R, G, B;
+    if (k >= 0 && a[k]) {
+      const ck = c[k];
+      // pseudo-relief from neighbouring crystal mass
+      const kn = k - N, ks = k + N;
+      const grad = (a[kn] ? c[kn] : 0.3) - (a[ks] ? c[ks] : 0.3) + 0.5 * ((a[k - 1] ? c[k - 1] : 0.3) - (a[k + 1] ? c[k + 1] : 0.3));
+      const edge = (a[k - 1] & a[k + 1] & a[kn] & a[ks] & a[k + 1 - N] & a[k - 1 + N]) ? 0 : 1;
+      let sh = clamp(0.45 + 0.42 * Math.tanh((ck - 1.0) * 1.6) + 0.28 * grad, 0.12, 1.15) + 0.25 * edge;
+      if (view === 'ice') { const m = 0.62 + 0.38 * Math.min(sh, 1.1); R = (175 + 80 * sh) * m; G = (205 + 50 * sh) * m; B = (245 + 10 * sh) * m; }
+      else {
+        const col = view === 'temp' ? tLUT[clamp(Math.round(-TAt[k] * 4), 0, tLUT.length - 1)]
+                                    : timeLUT[clamp(Math.round(tAt[k] / tNow * 200), 0, 200)];
+        const m = 0.55 + 0.45 * clamp(sh, 0, 1.1);
+        R = col[0] * m; G = col[1] * m; B = col[2] * m;
+      }
+    } else {
+      let dv;
+      if (k < 0 || pxR[o] > Rfar) dv = rho; else dv = d[k];
+      if (k >= 0 && nb[k] > 0) dv = Math.max(dv, 0.3 * sim.b[k]);
+      const h = clamp(dv / 0.62, 0, 1.1) * hazeK;
+      R = bg[0] + (haze[0] - bg[0]) * h * 0.55; G = bg[1] + (haze[1] - bg[1]) * h * 0.55; B = bg[2] + (haze[2] - bg[2]) * h * 0.55;
+      // vignette towards the chamber wall
+      const v = pxR[o] / viewR; if (v > 0.8) { const f = 1 - (v - 0.8) * 1.2; R *= f; G *= f; B *= f; }
+    }
+    pix[p4] = R; pix[p4 + 1] = G; pix[p4 + 2] = B; pix[p4 + 3] = 255;
+  }
+  cctx.putImageData(img, 0, 0);
+  // vapour particles
+  cctx.fillStyle = `rgba(${haze[0] | 0},${haze[1] | 0},${haze[2] | 0},0.55)`;
+  for (const p of particles) cctx.fillRect(p.x - 0.9, p.y - 0.9, 1.8, 1.8);
+}
+
+// ---------- side view ----------
+const sideC = document.getElementById('side');
+const sctx = sideC.getContext('2d');
+let sideScale = null;
+function updateSide(dt, p, dR) {
+  const L = side.layers;
+  const drive = Math.min(1.2, state.S / 0.3);
+  const R = Math.max(1.2, sim.radius);
+  // interior layers are shielded from vapour when growth is diffusion-limited (plate regime)
+  const wInt = clamp(1 - 1.25 * Sim.plateFactor(state.T) * drive, 0.04, 1);
+  if (dR > 0) for (let i = 0; i < L.length; i++) {
+    const end = i >= L.length - 4;
+    L[i].w = Math.min(R, L[i].w + dR * (end ? 1.6 : wInt));
+  }
+    // basal growth lengthens the c-axis
+  if (side.halfH < MAXR * 1.05) {
+    side.acc += 2.2 * p.basal * state.speed * dt;
+    while (side.acc >= side.dz) {
+      side.acc -= side.dz;
+      const last = L[L.length - 1];
+      L.push({ w: last.w, T: state.T, t: state.time });
+      side.halfH = L.length * side.dz;
+    }
+  }
+}
+function renderSide() {
+  const W = sideC.width, H = sideC.height;
+  sctx.clearRect(0, 0, W, H);
+  const L = side.layers;
+  let maxW = 1; for (const l of L) if (l.w > maxW) maxW = l.w;
+  const target = Math.min(9, (W - 40) / (2 * maxW), (H - 30) / (2 * side.halfH));
+  sideScale = sideScale == null ? target : (target < sideScale ? target : sideScale + (target - sideScale) * 0.05);
+  const k = sideScale, cx = W / 2, cy = H / 2;
+  // axis
+  sctx.strokeStyle = 'rgba(124,196,255,.25)'; sctx.setLineDash([4, 4]);
+  sctx.beginPath(); sctx.moveTo(cx, 8); sctx.lineTo(cx, H - 8); sctx.stroke(); sctx.setLineDash([]);
+  sctx.fillStyle = 'rgba(159,176,216,.8)'; sctx.font = '11px system-ui'; sctx.fillText('c‑axis', cx + 5, 16);
+  const dzp = side.dz * k;
+  for (let i = 0; i < L.length; i++) {
+    const l = L[i]; const hw = l.w * k;
+    let col;
+    if (state.view === 'temp') col = tColor(l.T);
+    else if (state.view === 'time') col = timeColor(clamp(l.t / Math.max(0.001, state.time), 0, 1));
+    else col = [200, 225, 255];
+    const g = sctx.createLinearGradient(cx - hw, 0, cx + hw, 0);
+    const c1 = `rgb(${col[0] * 0.55 | 0},${col[1] * 0.6 | 0},${col[2] * 0.75 | 0})`, c2 = `rgb(${col[0] | 0},${col[1] | 0},${col[2] | 0})`;
+    g.addColorStop(0, c1); g.addColorStop(0.3, c2); g.addColorStop(0.55, c2); g.addColorStop(1, c1);
+    sctx.fillStyle = g;
+    const yTop = cy - (i + 1) * dzp, yBot = cy + i * dzp;
+    const hh = Math.max(dzp, 0.8) + 0.5;
+    sctx.fillRect(cx - hw, yTop, 2 * hw, hh);
+    sctx.fillRect(cx - hw, yBot, 2 * hw, hh);
+  }
+  const aspect = (2 * side.halfH) / (2 * maxW);
+  sctx.fillStyle = 'rgba(232,238,252,.85)'; sctx.font = '12px system-ui';
+  sctx.fillText(`length : width ≈ ${aspect >= 1 ? aspect.toFixed(1) + ' : 1' : '1 : ' + (1 / aspect).toFixed(1)}`, 10, H - 10);
+}
+
+// ---------- diagram ----------
+const dia = document.getElementById('diagram');
+const dctx = dia.getContext('2d');
+const DM = { l: 74, r: 14, t: 14, b: 66 }; // plot margins (canvas px) – sliders sit in the margins
+let diagramDirty = true;
+const xOf = T => DM.l + (T_MAX - T) / (T_MAX - T_MIN) * (dia.width - DM.l - DM.r);
+const yOf = S => dia.height - DM.b - (S - S_MIN) / (S_MAX - S_MIN) * (dia.height - DM.t - DM.b);
+const TofX = x => T_MAX - (x - DM.l) / (dia.width - DM.l - DM.r) * (T_MAX - T_MIN);
+const SofY = y => S_MIN + (dia.height - DM.b - y) / (dia.height - DM.t - DM.b) * (S_MAX - S_MIN);
+
+let diaBase = null;
+function drawDiagramBase() {
+  const W = dia.width, H = dia.height;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const x0 = xOf(0), x1 = xOf(-30), y0 = yOf(0), y1 = yOf(S_MAX);
+  g.fillStyle = '#0d1530'; g.fillRect(x0, y1, x1 - x0, y0 - y1);
+  // habit bands
+  const bands = [[0, -3, 'rgba(124,196,255,.13)', 'Plates'], [-3, -10, 'rgba(255,210,124,.12)', 'Columns'], [-10, -22, 'rgba(124,196,255,.13)', 'Plates'], [-22, -30, 'rgba(255,210,124,.07)', 'Columns & plates']];
+  g.font = '600 12px system-ui'; g.textAlign = 'center';
+  for (const [a, b, col, name] of bands) {
+    g.fillStyle = col; g.fillRect(xOf(a), y1, xOf(b) - xOf(a), y0 - y1);
+    g.fillStyle = 'rgba(232,238,252,.8)'; g.fillText(name, (xOf(a) + xOf(b)) / 2, y1 + 15);
+  }
+  // branching zone: shade by mapped "branchiness" to hint where complexity grows
+  const img = g.getImageData(0, 0, W, H);
+  for (let y = Math.ceil(y1); y < y0; y++) for (let x = Math.ceil(x0); x < x1; x++) {
+    const T = TofX(x), S = SofY(y);
+    const br = Sim.plateFactor(T) * Math.min(1.2, S / 0.3) * 1.4;
+    if (br > 0.6) { const o = (y * W + x) * 4; const a = clamp((br - 0.6) * 0.5, 0, 0.22);
+      img.data[o] = lerp(img.data[o], 190, a); img.data[o + 1] = lerp(img.data[o + 1], 220, a); img.data[o + 2] = lerp(img.data[o + 2], 255, a); }
+  }
+  g.putImageData(img, 0, 0);
+  // grid
+  g.strokeStyle = 'rgba(255,255,255,.07)'; g.lineWidth = 1;
+  for (let T = 0; T >= -30; T -= 5) { g.beginPath(); g.moveTo(xOf(T) + .5, y1); g.lineTo(xOf(T) + .5, y0); g.stroke(); }
+  for (let S = 0; S <= S_MAX + 1e-9; S += 0.05) { g.beginPath(); g.moveTo(x0, yOf(S) + .5); g.lineTo(x1, yOf(S) + .5); g.stroke(); }
+  // water saturation line
+  g.strokeStyle = 'rgba(255,255,255,.75)'; g.setLineDash([6, 5]); g.lineWidth = 1.6; g.beginPath();
+  for (let T = 0; T >= -30; T -= 0.25) { const X = xOf(T), Y = yOf(waterExcess(T)); T === 0 ? g.moveTo(X, Y) : g.lineTo(X, Y); }
+  g.stroke(); g.setLineDash([]);
+  g.fillStyle = 'rgba(255,255,255,.8)'; g.font = 'italic 11.5px system-ui'; g.textAlign = 'left';
+  g.fillText('water saturation', xOf(-23.5), yOf(waterExcess(-23.5)) - 7);
+  // morphology labels
+  g.font = '11.5px system-ui'; g.textAlign = 'center'; g.fillStyle = 'rgba(232,238,252,.9)';
+  const lab = (t, T, S) => g.fillText(t, xOf(T), yOf(S));
+  lab('Fernlike dendrites', -15, 0.31); lab('Stellar dendrites', -15.5, 0.235); lab('Sectored plates', -15, 0.15);
+  lab('Needles', -5.2, 0.27); lab('Hollow columns', -6.5, 0.12); lab('Solid prisms', -16, 0.03);
+  lab('Thin plates', -1.5, 0.2); lab('Plates', -26, 0.2);
+  // axes
+  g.fillStyle = '#9fb0d8'; g.font = '12px system-ui'; g.textAlign = 'center';
+  for (let T = 0; T >= -30; T -= 5) g.fillText(T + '', xOf(T), y0 + 46);
+  g.fillText('Temperature (°C)', (x0 + x1) / 2, H - 4);
+  g.textAlign = 'right';
+  for (let S = 0; S <= S_MAX + 1e-9; S += 0.05) g.fillText(S.toFixed(2), x0 - 34, yOf(S) + 4);
+  g.save(); g.translate(13, (y0 + y1) / 2); g.rotate(-Math.PI / 2); g.textAlign = 'center';
+  g.fillText('Excess vapour over ice (g/m³)', 0, 0); g.restore();
+  diaBase = c;
+}
+function drawDiagram() {
+  if (!diaBase) drawDiagramBase();
+  dctx.clearRect(0, 0, dia.width, dia.height);
+  dctx.drawImage(diaBase, 0, 0);
+  // trail
+  const tr = state.trail;
+  if (tr.length > 1) {
+    dctx.lineWidth = 2.5; dctx.lineCap = 'round';
+    for (let i = 1; i < tr.length; i++) {
+      const col = tColor(tr[i].T);
+      dctx.strokeStyle = `rgba(${col[0] | 0},${col[1] | 0},${col[2] | 0},${0.35 + 0.65 * i / tr.length})`;
+      dctx.beginPath(); dctx.moveTo(xOf(tr[i - 1].T), yOf(tr[i - 1].S)); dctx.lineTo(xOf(tr[i].T), yOf(tr[i].S)); dctx.stroke();
+    }
+  }
+  // crosshair guides to sliders
+  const X = xOf(state.T), Y = yOf(state.S);
+  dctx.strokeStyle = 'rgba(124,196,255,.45)'; dctx.setLineDash([3, 4]); dctx.lineWidth = 1;
+  dctx.beginPath(); dctx.moveTo(X, Y); dctx.lineTo(X, yOf(0)); dctx.stroke();
+  dctx.strokeStyle = 'rgba(255,210,124,.45)';
+  dctx.beginPath(); dctx.moveTo(X, Y); dctx.lineTo(xOf(0), Y); dctx.stroke(); dctx.setLineDash([]);
+  // point
+  dctx.beginPath(); dctx.arc(X, Y, 10, 0, Math.PI * 2); dctx.fillStyle = 'rgba(255,255,255,.18)'; dctx.fill();
+  dctx.beginPath(); dctx.arc(X, Y, 6.5, 0, Math.PI * 2); dctx.fillStyle = '#fff'; dctx.fill();
+  dctx.lineWidth = 2.5; dctx.strokeStyle = '#2f6db5'; dctx.stroke();
+  diagramDirty = false;
+}
+
+// ---------- sliders (custom, keyboard accessible) ----------
+function makeSlider(el, opts) {
+  const track = el.querySelector('.track'), fill = el.querySelector('.fill'), thumb = el.querySelector('.thumb'), bubble = el.querySelector('.bubble');
+  const sl = { el, ...opts, layout: null };
+  sl.set = function (v) {
+    const L = sl.layout; if (!L) return;
+    const u = (v - sl.min) / (sl.max - sl.min);
+    if (sl.vertical) {
+      const y = L.len * (1 - u);
+      thumb.style.left = L.thick / 2 + 'px'; thumb.style.top = y + 'px';
+      fill.style.left = (L.thick / 2 - 3) + 'px'; fill.style.width = '6px'; fill.style.top = y + 'px'; fill.style.height = (L.len - y) + 'px';
+      bubble.style.left = (L.thick / 2 + 36) + 'px'; bubble.style.top = y + 'px';
+    } else {
+      const x = L.len * (sl.reverse ? 1 - u : u);
+      thumb.style.left = x + 'px'; thumb.style.top = L.thick / 2 + 'px';
+      fill.style.top = (L.thick / 2 - 3) + 'px'; fill.style.height = '6px'; fill.style.left = '0px'; fill.style.width = x + 'px';
+      bubble.style.left = x + 'px'; bubble.style.top = (L.thick / 2 - 24) + 'px';
+    }
+    bubble.textContent = sl.fmt(v);
+    el.setAttribute('aria-valuenow', v.toFixed(3)); el.setAttribute('aria-valuetext', sl.fmt(v));
+    el.setAttribute('aria-valuemin', sl.min); el.setAttribute('aria-valuemax', sl.max);
+  };
+  sl.place = function (left, top, len, thick) {
+    sl.layout = { len, thick };
+    Object.assign(el.style, sl.vertical ? { left: left + 'px', top: top + 'px', width: thick + 'px', height: len + 'px' }
+                                        : { left: left + 'px', top: top + 'px', width: len + 'px', height: thick + 'px' });
+    if (sl.vertical) Object.assign(track.style, { left: (thick / 2 - 3) + 'px', top: '0', width: '6px', height: len + 'px' });
+    else Object.assign(track.style, { top: (thick / 2 - 3) + 'px', left: '0', height: '6px', width: len + 'px' });
+    fill.style.background = getComputedStyle(el).getPropertyValue('--c');
+    sl.set(sl.get());
+  };
+  function fromEvent(e) {
+    const r = el.getBoundingClientRect(); const L = sl.layout;
+    let u = sl.vertical ? 1 - (e.clientY - r.top) / L.len : (e.clientX - r.left) / L.len;
+    if (sl.reverse) u = 1 - u;
+    return sl.min + clamp(u, 0, 1) * (sl.max - sl.min);
+  }
+  el.addEventListener('pointerdown', e => { el.setPointerCapture(e.pointerId); sl.dragging = true; el.focus(); sl.onInput(fromEvent(e)); e.preventDefault(); });
+  el.addEventListener('pointermove', e => { if (sl.dragging) sl.onInput(fromEvent(e)); });
+  el.addEventListener('pointerup', () => { sl.dragging = false; });
+  el.addEventListener('pointercancel', () => { sl.dragging = false; });
+  el.addEventListener('keydown', e => {
+    const big = e.shiftKey ? 5 : 1; let v = sl.get();
+    if (e.key === 'ArrowUp' || e.key === 'ArrowRight') v += sl.stepKey * big * (sl.reverse && e.key === 'ArrowRight' ? -1 : 1);
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') v -= sl.stepKey * big * (sl.reverse && e.key === 'ArrowLeft' ? -1 : 1);
+    else return;
+    e.preventDefault(); sl.onInput(clamp(v, sl.min, sl.max));
+  });
+  return sl;
+}
+const sliderT = makeSlider(document.getElementById('sT'), { min: T_MIN, max: T_MAX, reverse: true, vertical: false, stepKey: 0.5,
+  fmt: v => v.toFixed(1) + ' °C', get: () => state.T, onInput: v => userSet(v, state.S) });
+const sliderS = makeSlider(document.getElementById('sS'), { min: S_MIN, max: S_MAX, vertical: true, stepKey: 0.005,
+  fmt: v => v.toFixed(3), get: () => state.S, onInput: v => userSet(state.T, v) });
+
+function layoutDiagram() {
+  const r = dia.getBoundingClientRect(); const k = r.width / dia.width;
+  const px0 = xOf(0) * k, px1 = xOf(-30) * k, py0 = yOf(0) * k, py1 = yOf(S_MAX) * k;
+  sliderT.place(px0, py0 + 2, px1 - px0, 30);
+  sliderS.place(px0 - 32, py1, py0 - py1, 30);
+}
+window.addEventListener('resize', layoutDiagram);
+
+// ---------- conditions control ----------
+function setConditions(T, S) {
+  state.T = clamp(T, T_MIN, T_MAX); state.S = clamp(S, S_MIN, S_MAX);
+  sliderT.set(state.T); sliderS.set(state.S);
+  diagramDirty = true;
+}
+function userSet(T, S) {
+  stopAuto(); stopJourney();
+  setConditions(T, S);
+}
+let draggingDia = false;
+function diaEvent(e) {
+  const r = dia.getBoundingClientRect(); const k = dia.width / r.width;
+  userSet(TofX((e.clientX - r.left) * k), SofY((e.clientY - r.top) * k));
+}
+dia.addEventListener('pointerdown', e => { dia.setPointerCapture(e.pointerId); draggingDia = true; diaEvent(e); });
+dia.addEventListener('pointermove', e => { if (draggingDia) diaEvent(e); });
+dia.addEventListener('pointerup', () => draggingDia = false);
+dia.addEventListener('pointercancel', () => draggingDia = false);
+
+// auto drift: a smooth wander, like a crystal falling through a cloud
+const autoBtn = document.getElementById('autoBtn');
+function startAuto() {
+  stopJourney();
+  state.auto = true; state.autoT0 = state.time;
+  state.autoPh = [0, 1, 2, 3].map(() => Math.random() * Math.PI * 2);
+  state.autoFrom = { T: state.T, S: state.S };
+  autoBtn.classList.add('on'); autoBtn.textContent = '✦ Auto‑drift: on';
+}
+function stopAuto() { if (!state.auto) return; state.auto = false; autoBtn.classList.remove('on'); autoBtn.textContent = '✦ Auto‑drift'; }
+autoBtn.onclick = () => state.auto ? stopAuto() : startAuto();
+function autoTarget(t) {
+  const p = state.autoPh;
+  const T = clamp(-13 + 9 * Math.sin(0.09 * t + p[0]) + 5 * Math.sin(0.23 * t + p[1]), -28, -0.8);
+  const S = clamp(0.17 + 0.09 * Math.sin(0.13 * t + p[2]) + 0.05 * Math.sin(0.31 * t + p[3]), 0.02, 0.33);
+  return { T, S };
+}
+
+// presets & journeys
+const PRESETS = {
+  plate:   { T: -2.0, S: 0.07 },
+  sector:  { T: -13,  S: 0.13 },
+  stellar: { T: -15,  S: 0.21 },
+  fern:    { T: -15,  S: 0.31 },
+  column:  { T: -7,   S: 0.08 },
+  needle:  { T: -5,   S: 0.27 },
+  capped:  { journey: [{ T: -6, S: 0.2, dur: 14 }, { T: -15, S: 0.17, dur: 60 }], name: 'Capped column: a column grows at −6 °C, then the crystal falls into −15 °C air and plates sprout from both ends.' },
+  tipped:  { journey: [{ T: -15, S: 0.24, dur: 6 }, { T: -12, S: 0.07, dur: 9 }, { T: -15, S: 0.26, dur: 60 }], name: 'Branches grow, then drier air makes the tips facet into little plates, then branching resumes.' },
+};
+const journeyLbl = document.getElementById('journeyLbl');
+function startJourney(j) {
+  stopAuto();
+  state.journey = { segs: j.journey, t: 0, from: { T: j.journey[0].T, S: j.journey[0].S } };
+  setConditions(j.journey[0].T, j.journey[0].S);
+  newCrystal();
+  journeyLbl.textContent = j.name;
+}
+function stopJourney() { if (!state.journey) return; state.journey = null; journeyLbl.textContent = ''; }
+function journeyTarget(J, dt) {
+  J.t += dt * state.speed;
+  let t = J.t, i = 0;
+  while (i < J.segs.length - 1 && t > J.segs[i].dur) { t -= J.segs[i].dur; i++; }
+  const seg = J.segs[i], prev = i > 0 ? J.segs[i - 1] : seg;
+  const u = clamp(t / 2.5, 0, 1), e = u * u * (3 - 2 * u); // 2.5 s transition
+  return { T: lerp(prev.T, seg.T, e), S: lerp(prev.S, seg.S, e) };
+}
+document.querySelectorAll('[data-preset]').forEach(b => b.onclick = () => {
+  const p = PRESETS[b.dataset.preset];
+  if (p.journey) startJourney(p);
+  else { userSet(p.T, p.S); newCrystal(); }
+  if (!state.running) togglePlay();
+});
+
+// ---------- explanation ----------
+const explainEl = document.getElementById('explain');
+let lastExplainKey = '';
+function explain() {
+  const T = state.T, S = state.S, we = waterExcess(T);
+  let habit, hname;
+  if (T > -3) { hname = 'Plates'; habit = 'Near 0 °C the basal facets (the hexagonal top and bottom) grow slowly compared with the six prism facets around the sides, so the crystal spreads sideways into a plate.'; }
+  else if (T > -10) { hname = (T > -4 && T < -6.5) ? 'Columns and needles' : 'Columns'; habit = 'Between about −3 and −10 °C the balance flips. Now the prism facets are the slow ones and the basal facets grow fast, so the crystal stretches along its c‑axis into a column (watch the side view). Near −5 °C, with plenty of vapour, the columns become long, thin needles.'; }
+  else if (T > -22) { hname = 'Plates'; habit = 'Between about −10 and −22 °C plates win again. Near −15 °C the thin prism edges grow especially quickly (Libbrecht calls this edge sharpening), giving the thinnest plates and the most dramatic branching.'; }
+  else { hname = 'Thick plates and columns'; habit = 'Below about −22 °C growth is slower and the habit is mixed: thick plates and short columns, often clumped together.'; }
+  let cx, cname;
+  const s = S / 0.3;
+  if (S < 0.02) { cname = 'Barely growing'; cx = 'The air is only just supersaturated. Molecules arrive so slowly that the crystal hardly grows.'; }
+  else if (s < 0.3) { cname = 'faceted'; cx = 'At low supersaturation, attaching molecules to the flat facets is the slow step, and the vapour has time to spread evenly. The faces stay flat and the crystal is a simple hexagonal prism.'; }
+  else if (s < 0.6) { cname = 'starting to branch'; cx = 'More vapour means the corners, which stick out further into the humid air, start to collect more than the middles of the faces. You get ribs and sectored plates, or hollow ends on columns.'; }
+  else { cname = 'branching'; cx = 'At high supersaturation growth is limited by diffusion. Any corner that gets ahead collects even more vapour and runs away into a branch, and bumps on the branches become sidebranches. All six arms experience the same conditions, which is why they match.'; }
+  const above = S > we ? ' You are above the water‑saturation line: in a real cloud this means supercooled water droplets would be present too.' : '';
+  const key = hname + cname + (S > we);
+  if (key === lastExplainKey) return; lastExplainKey = key;
+  explainEl.innerHTML = `<h3>${hname} · ${cname}</h3><p><b>Temperature:</b> ${habit}</p><p><b>Humidity:</b> ${cx}${above}</p>`;
+}
+
+// ---------- readouts ----------
+const roT = document.getElementById('roT'), roS = document.getElementById('roS'), roRHi = document.getElementById('roRHi'), roRHw = document.getElementById('roRHw');
+const statusEl = document.getElementById('status');
+function readouts() {
+  const T = state.T, S = state.S;
+  const ri = rhoV(pIce(T), T), rw = rhoV(pWater(T), T);
+  roT.textContent = T.toFixed(1) + ' °C';
+  roS.textContent = S.toFixed(3);
+  roRHi.textContent = ((ri + S) / ri * 100).toFixed(0) + '%';
+  roRHw.textContent = ((ri + S) / rw * 100).toFixed(0) + '%';
+}
+
+// ---------- controls ----------
+const playBtn = document.getElementById('playBtn');
+function togglePlay() { state.running = !state.running; playBtn.textContent = state.running ? '⏸ Pause' : '▶ Grow'; }
+playBtn.onclick = togglePlay;
+document.getElementById('resetBtn').onclick = () => { stopJourney(); newCrystal(); if (!state.running) togglePlay(); };
+document.getElementById('saveBtn').onclick = () => {
+  const a = document.createElement('a'); a.download = `snowflake_${state.T.toFixed(0)}C.png`; a.href = chamber.toDataURL('image/png'); a.click();
+};
+function seg(id, cb) {
+  const el = document.getElementById(id);
+  el.querySelectorAll('button').forEach(b => b.onclick = () => { el.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); cb(b.dataset.v); });
+}
+seg('speedSeg', v => state.speed = +v);
+const legend = document.getElementById('chamberLegend');
+seg('viewSeg', v => {
+  state.view = v;
+  legend.style.display = v === 'ice' ? 'none' : 'block';
+  if (v === 'temp') { document.getElementById('legTitle').textContent = 'Temperature when formed';
+    document.getElementById('legBar').style.background = 'linear-gradient(90deg,' + TPAL.map(([t, c]) => `rgb(${c}) ${(-t / 30 * 100).toFixed(0)}%`).join(',') + ')';
+    document.getElementById('legA').textContent = '0 °C'; document.getElementById('legB').textContent = '−30 °C'; }
+  else { document.getElementById('legTitle').textContent = 'Time formed';
+    document.getElementById('legBar').style.background = 'linear-gradient(90deg,rgb(70,90,220),rgb(60,190,240),rgb(170,245,210),rgb(255,236,150))';
+    document.getElementById('legA').textContent = 'first'; document.getElementById('legB').textContent = 'latest'; }
+});
+
+// ---------- main loop ----------
+let last = performance.now();
+let trailClock = 0;
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  // drive conditions automatically
+  if (state.journey) { const p = journeyTarget(state.journey, dt); setConditions(p.T, p.S); }
+  else if (state.auto) {
+    const t = (state.time - state.autoT0);
+    const tgt = autoTarget(t * 1.0 + 0.0);
+    const b = clamp(t / 3, 0, 1); // ease in from where the point was
+    setConditions(lerp(state.autoFrom.T, tgt.T, b), lerp(state.autoFrom.S, tgt.S, b));
+  }
+  if (state.running && !state.done) {
+    const p = Sim.mapParams(state.T, state.S);
+    Object.assign(sim.params, p);
+    const drive = Math.min(1.2, state.S / 0.3);
+    // target in-plane growth speed (cells per second); the step rate adapts to deliver it
+    const target = state.speed * (0.35 + 4.5 * drive) * p.inPlane;
+    const g = clamp(gNum / gDen, 2e-5, 0.3);
+    stepsAcc += target * dt / g;
+    const want = Math.floor(stepsAcc);
+    sim.time = state.time;
+    const t0 = performance.now();
+    let n = 0;
+    while (n < want && (n & 7 || performance.now() - t0 < 11)) { Sim.step(sim, state.T); n++; }
+    stepsAcc = n < want ? 0 : stepsAcc - n;
+    const dR = sim.radius - Rprev; Rprev = sim.radius;
+    gNum = gNum * 0.985 + dR; gDen = gDen * 0.985 + n;
+    state.time += dt * state.speed;
+    updateSide(dt, p, dR);
+    trailClock += dt;
+    if (trailClock > 0.15) { trailClock = 0; const L = state.trail[state.trail.length - 1];
+      if (!L || Math.abs(L.T - state.T) > 0.05 || Math.abs(L.S - state.S) > 0.001) { state.trail.push({ T: state.T, S: state.S }); if (state.trail.length > 600) state.trail.shift(); diagramDirty = true; } }
+    if (sim.radius >= MAXR * 0.93) { state.done = true; }
+    statusEl.textContent = state.done ? '❄ Fully grown. Press “New crystal” to start again'
+      : `Growing · ${(state.time).toFixed(0)} s · diameter ≈ ${(2 * sim.radius * 0.025).toFixed(2)} mm`;
+  } else if (!state.running && !state.done) statusEl.textContent = 'Paused';
+  updateParticles(dt);
+  renderChamber();
+  renderSide();
+  if (diagramDirty) drawDiagram();
+  readouts(); explain();
+  requestAnimationFrame(frame);
+}
+
+// ---------- paper snowflake ----------
+const paper = { feature: 4, side: 200, data: null };
+function attachedAt(x, y) {
+  const r = y / (Math.sqrt(3) / 2), q = x - r / 2;
+  let rx = Math.round(q), rz = Math.round(r), ry = Math.round(-q - r);
+  const dx = Math.abs(rx - q), dy = Math.abs(ry + q + r), dz = Math.abs(rz - r);
+  if (dx > dy && dx > dz) rx = -ry - rz; else if (dy <= dz) rz = -rx - ry;
+  const i = rx + sim.c0, j = rz + sim.c0;
+  if (i < 1 || j < 1 || i >= N - 1 || j >= N - 1) return 0;
+  return sim.a[j * N + i];
+}
+const INF = 1e20;
+function dt1(f, n, d, v, z) {
+  let k = 0; v[0] = 0; z[0] = -INF; z[1] = INF;
+  for (let q = 1; q < n; q++) {
+    let s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
+    while (s <= z[k]) { k--; s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]); }
+    k++; v[k] = q; z[k] = s; z[k + 1] = INF;
+  }
+  k = 0;
+  for (let q = 0; q < n; q++) { while (z[k + 1] < q) k++; d[q] = (q - v[k]) * (q - v[k]) + f[v[k]]; }
+}
+// squared distance from each pixel to the nearest pixel whose value is `val`
+function dist2(m, w, h, val) {
+  const f = new Float64Array(w * h);
+  for (let i = 0; i < f.length; i++) f[i] = m[i] === val ? 0 : INF;
+  const n = Math.max(w, h), tf = new Float64Array(n), d = new Float64Array(n), v = new Int32Array(n), z = new Float64Array(n + 1);
+  for (let x = 0; x < w; x++) { for (let y = 0; y < h; y++) tf[y] = f[y * w + x]; dt1(tf, h, d, v, z); for (let y = 0; y < h; y++) f[y * w + x] = d[y]; }
+  for (let y = 0; y < h; y++) { const o = y * w; for (let x = 0; x < w; x++) tf[x] = f[o + x]; dt1(tf, w, d, v, z); for (let x = 0; x < w; x++) f[o + x] = d[x]; }
+  return f;
+}
+function dilate(m, w, h, r) { const D = dist2(m, w, h, 1), o = new Uint8Array(m.length); for (let i = 0; i < o.length; i++) o[i] = D[i] <= r * r ? 1 : 0; return o; }
+function erode(m, w, h, r) { const D = dist2(m, w, h, 0), o = new Uint8Array(m.length); for (let i = 0; i < o.length; i++) o[i] = D[i] > r * r ? 1 : 0; return o; }
+
+// oriented marching squares -> closed loops (pixel-centre coordinates)
+function traceLoops(get, x0, x1, y0, y1) {
+  const segs = [];
+  const K = 100000;
+  const key = (x, y) => Math.round(x * 2 + 4) * K + Math.round(y * 2 + 4);
+  for (let y = y0 - 1; y <= y1; y++) for (let x = x0 - 1; x <= x1; x++) {
+    const a = get(x, y), b = get(x + 1, y), c = get(x + 1, y + 1), d = get(x, y + 1);
+    const idx = a * 8 + b * 4 + c * 2 + d;
+    if (idx === 0 || idx === 15) continue;
+    const E = { T: [x + 0.5, y], R: [x + 1, y + 0.5], B: [x + 0.5, y + 1], L: [x, y + 0.5] };
+    let pairs;
+    if (idx === 10) pairs = [['L', 'T'], ['R', 'B']];
+    else if (idx === 5) pairs = [['T', 'R'], ['B', 'L']];
+    else { const cr = []; if (a !== b) cr.push('T'); if (b !== c) cr.push('R'); if (c !== d) cr.push('B'); if (d !== a) cr.push('L'); pairs = [cr]; }
+    const corners = [[x, y, a], [x + 1, y, b], [x + 1, y + 1, c], [x, y + 1, d]].filter(q => q[2]);
+    for (const [e1, e2] of pairs) {
+      let p = E[e1], q = E[e2];
+      const mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2;
+      let best = corners[0], bd = 1e9;
+      for (const cc of corners) { const dd = (cc[0] - mx) ** 2 + (cc[1] - my) ** 2; if (dd < bd) { bd = dd; best = cc; } }
+      const cross = (q[0] - p[0]) * (best[1] - p[1]) - (q[1] - p[1]) * (best[0] - p[0]);
+      if (cross < 0) { const t = p; p = q; q = t; }
+      segs.push({ p, q, ks: key(p[0], p[1]), ke: key(q[0], q[1]), used: false });
+    }
+  }
+  const byStart = new Map();
+  for (const s of segs) byStart.set(s.ks, s);
+  const loops = [];
+  for (const s0 of segs) {
+    if (s0.used) continue;
+    const loop = []; let s = s0;
+    while (s && !s.used) { s.used = true; loop.push(s.p); s = byStart.get(s.ke); }
+    if (loop.length > 2) loops.push(loop);
+  }
+  return loops;
+}
+function dpOpen(pts, eps) {
+  if (pts.length < 3) return pts.slice();
+  const [ax, ay] = pts[0], [bx, by] = pts[pts.length - 1];
+  const L = Math.hypot(bx - ax, by - ay) || 1e-9;
+  let imax = 0, dmax = 0;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const d = Math.abs((bx - ax) * (ay - pts[i][1]) - (ax - pts[i][0]) * (by - ay)) / L;
+    if (d > dmax) { dmax = d; imax = i; }
+  }
+  if (dmax <= eps) return [pts[0], pts[pts.length - 1]];
+  const l = dpOpen(pts.slice(0, imax + 1), eps), r = dpOpen(pts.slice(imax), eps);
+  return l.slice(0, -1).concat(r);
+}
+function dpClosed(loop, eps) {
+  let far = 0, fd = 0;
+  for (let i = 1; i < loop.length; i++) { const d = (loop[i][0] - loop[0][0]) ** 2 + (loop[i][1] - loop[0][1]) ** 2; if (d > fd) { fd = d; far = i; } }
+  const a = dpOpen(loop.slice(0, far + 1), eps), b = dpOpen(loop.slice(far).concat([loop[0]]), eps);
+  return a.slice(0, -1).concat(b.slice(0, -1));
+}
+const area = L => { let s = 0; for (let i = 0; i < L.length; i++) { const p = L[i], q = L[(i + 1) % L.length]; s += p[0] * q[1] - q[0] * p[1]; } return s / 2; };
+
+function buildPaper() {
+  const M = 260, SZ = 2 * M + 1;
+  const Rc = Math.max(3, sim.radius);
+  const cpp = Rc * 1.06 / M;                       // crystal cells per raster px
+  const Rt = 0.47 * paper.side;                    // template radius (mm)
+  const mmPerPx = 0.9 * Rt * 1.06 / M;
+  // 1. twelve-fold symmetrised mask of the crystal
+  let m = new Uint8Array(SZ * SZ);
+  const P3 = Math.PI / 3, P6 = Math.PI / 6;
+  for (let Y = 0; Y < SZ; Y++) for (let X = 0; X < SZ; X++) {
+    const x = (X - M) * cpp, y = (M - Y) * cpp, rho = Math.hypot(x, y);
+    if (rho > Rc * 1.05) continue;
+    let t = Math.atan2(y, x); t = ((t % P3) + P3) % P3; if (t > P6) t = P3 - t;
+    let s = 0;
+    for (let k = 0; k < 6; k++) { const a1 = k * P3 + t, a2 = k * P3 - t;
+      s += attachedAt(rho * Math.cos(a1), rho * Math.sin(a1)) + attachedAt(rho * Math.cos(a2), rho * Math.sin(a2)); }
+    m[Y * SZ + X] = s >= 6 ? 1 : 0;
+  }
+  // 2. simplify: close narrow gaps, then remove features too thin to cut
+  const r = Math.max(1, paper.feature / 2 / mmPerPx);
+  m = erode(dilate(m, SZ, SZ, r), SZ, SZ, r);
+  m = dilate(erode(m, SZ, SZ, r), SZ, SZ, r);
+  // always keep a solid centre and only what's connected to it
+  for (let Y = -6; Y <= 6; Y++) for (let X = -6; X <= 6; X++) if (X * X + Y * Y <= 36) m[(M + Y) * SZ + M + X] = 1;
+  const keep = new Uint8Array(SZ * SZ), stack = [M * SZ + M]; keep[M * SZ + M] = 1;
+  while (stack.length) { const k = stack.pop(); const x = k % SZ, y = (k / SZ) | 0;
+    for (const n of [x > 0 ? k - 1 : -1, x < SZ - 1 ? k + 1 : -1, y > 0 ? k - SZ : -1, y < SZ - 1 ? k + SZ : -1])
+      if (n >= 0 && m[n] && !keep[n]) { keep[n] = 1; stack.push(n); } }
+  // 3. contour of the kept region inside the 30-degree wedge
+  const tan30 = Math.tan(P6);
+  const inWedge = (X, Y) => { const x = X - M, y = M - Y; return x >= 0 && y >= -0.01 && y <= x * tan30 + 0.01 && x * x + y * y <= M * M; };
+  const get = (X, Y) => (X >= 0 && Y >= 0 && X < SZ && Y < SZ && keep[Y * SZ + X] && inWedge(X, Y)) ? 1 : 0;
+  let loops = traceLoops(get, M, SZ - 1, M - Math.ceil(M * 0.5) - 1, M);
+  const eps = Math.max(0.8, 0.3 * r);
+  loops = loops.map(L => dpClosed(L, eps)).filter(L => L.length >= 3 && Math.abs(area(L)) > r * r * 1.5);
+  // convert to "math" coords (x right, y up) in px from the centre
+  loops = loops.map(L => L.map(([X, Y]) => [X - M, M - Y]));
+  let maxR = 0; for (const L of loops) for (const [x, y] of L) maxR = Math.max(maxR, Math.hypot(x, y));
+  paper.data = { loops, M, mmPerPx, Rt, maxR, r };
+}
+
+// ----- template SVG -----
+function templateSVG(forPrint) {
+  const { loops, mmPerPx, Rt } = paper.data;
+  const al = 15 * Math.PI / 180, ca = Math.cos(al), sa = Math.sin(al);
+  const mg = 14, W = 2 * Rt * sa + 2 * mg + 24, H = Rt + mg + 30;
+  const cx = W / 2, cy = mg + Rt;
+  const tf = ([x, y]) => [cx + (y * ca - x * sa) * mmPerPx, cy - (x * ca + y * sa) * mmPerPx];
+  const f = v => v.toFixed(2);
+  const L = [cx - Rt * sa, cy - Rt * ca], R = [cx + Rt * sa, cy - Rt * ca];
+  const sector = `M${f(cx)},${f(cy)} L${f(L[0])},${f(L[1])} A${f(Rt)},${f(Rt)} 0 0 1 ${f(R[0])},${f(R[1])} Z`;
+  const keepPath = loops.map(Lp => 'M' + Lp.map(p => tf(p).map(f).join(',')).join(' L') + ' Z').join(' ');
+  const lab = (x1, y1, x2, y2, txt, side) => {
+    let ang = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI; if (ang < -90 || ang > 90) ang += 180;
+    const len = Math.hypot(x2 - x1, y2 - y1), nx = -(y2 - y1) / len * side, ny = (x2 - x1) / len * side;
+    const mx = x1 + (x2 - x1) * 0.55 + nx * 3.2, my = y1 + (y2 - y1) * 0.55 + ny * 3.2;
+    return `<text transform="translate(${f(mx)},${f(my)}) rotate(${f(ang)})" text-anchor="middle" dominant-baseline="middle" font-size="3.4" fill="#2f6db5">${txt}</text>`;
+  };
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${f(W)} ${f(H)}" width="${f(W)}mm" height="${f(H)}mm" ${forPrint ? '' : 'style="height:600px;width:auto"'} font-family="system-ui, sans-serif">
+  <defs><pattern id="hatch${forPrint ? 'P' : 'S'}" width="2.2" height="2.2" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2.2" height="2.2" fill="#d9dde6"/><line x1="0" y1="0" x2="0" y2="2.2" stroke="#b5bccb" stroke-width="0.7"/></pattern></defs>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <path d="${sector}" fill="url(#hatch${forPrint ? 'P' : 'S'})" stroke="#8892a8" stroke-width="0.3"/>
+  <path d="${keepPath}" fill="#fff" fill-rule="evenodd" stroke="#111" stroke-width="0.45" stroke-linejoin="round"/>
+  <line x1="${f(cx)}" y1="${f(cy)}" x2="${f(L[0])}" y2="${f(L[1])}" stroke="#2f6db5" stroke-width="0.5" stroke-dasharray="2.2 1.4"/>
+  <line x1="${f(cx)}" y1="${f(cy)}" x2="${f(R[0])}" y2="${f(R[1])}" stroke="#2f6db5" stroke-width="0.5" stroke-dasharray="2.2 1.4"/>
+  ${lab(cx, cy, L[0], L[1], 'folded edge', -1)}${lab(cx, cy, R[0], R[1], 'folded edge', 1)}
+  <circle cx="${f(cx)}" cy="${f(cy)}" r="1.2" fill="#2f6db5"/>
+  <text x="${f(cx)}" y="${f(cy + 6)}" text-anchor="middle" font-size="3.4" fill="#2f6db5">centre point of the folds</text>
+  <text x="${f(cx)}" y="${f(mg - 6)}" text-anchor="middle" font-size="3.4" fill="#555">✂ cut away the grey · keep the white</text>
+  <line x1="${f(mg - 6)}" y1="${f(H - 6)}" x2="${f(mg - 6 + 20)}" y2="${f(H - 6)}" stroke="#111" stroke-width="0.5"/>
+  <text x="${f(mg - 6)}" y="${f(H - 8)}" font-size="2.8" fill="#555">20 mm</text>
+</svg>`;
+}
+
+function drawPreview() {
+  const cv = document.getElementById('preview'), g = cv.getContext('2d'), S = cv.width;
+  const { loops, maxR } = paper.data;
+  g.clearRect(0, 0, S, S);
+  const k = (S * 0.46) / Math.max(maxR, 1);
+  g.save(); g.translate(S / 2, S / 2);
+  g.shadowColor = 'rgba(0,0,0,.45)'; g.shadowBlur = 14; g.shadowOffsetY = 4;
+  g.fillStyle = '#fbfcff'; g.strokeStyle = '#fbfcff'; g.lineWidth = 1.2; g.lineJoin = 'round';
+  const path = new Path2D();
+  for (let i = 0; i < 6; i++) for (const mir of [1, -1]) {
+    const a = i * Math.PI / 3, c = Math.cos(a), s = Math.sin(a);
+    for (const L of loops) {
+      L.forEach(([x, y0], n) => { const y = y0 * mir; const X = (x * c - y * s) * k, Y = -(x * s + y * c) * k; n ? path.lineTo(X, Y) : path.moveTo(X, Y); });
+      path.closePath();
+    }
+  }
+  g.fill(path, 'nonzero'); g.shadowColor = 'transparent'; g.stroke(path);
+  // faint creases
+  g.strokeStyle = 'rgba(80,100,150,.18)'; g.lineWidth = 1;
+  for (let i = 0; i < 6; i++) { const a = i * Math.PI / 6; g.beginPath(); g.moveTo(-Math.cos(a) * maxR * k, -Math.sin(a) * maxR * k); g.lineTo(Math.cos(a) * maxR * k, Math.sin(a) * maxR * k); g.stroke(); }
+  g.restore();
+}
+
+function stepSVGs() {
+  const sq = 'fill="#e8eefc" stroke="#7cc4ff" stroke-width="1.5"', da = 'stroke="#ffd27c" stroke-width="1.6" stroke-dasharray="4 3" fill="none"';
+  const steps = [
+    [`<rect x="22" y="12" width="76" height="76" ${sq}/><line x1="22" y1="88" x2="98" y2="12" ${da}/>`, 'Start with a square. Fold it in half along the diagonal to make a triangle.'],
+    [`<polygon points="15,85 105,85 60,40" ${sq}/><line x1="60" y1="40" x2="60" y2="85" ${da}/><circle cx="60" cy="85" r="3" fill="#ffd27c"/>`, 'Fold in half and unfold to mark the <b>centre</b> of the long edge.'],
+    [`<polygon points="15,85 105,85 60,40" ${sq}/><line x1="60" y1="85" x2="76.5" y2="56.5" ${da}/><line x1="60" y1="85" x2="43.5" y2="56.5" ${da}/><circle cx="60" cy="85" r="3" fill="#ffd27c"/>`, 'Fold into <b>thirds</b>: bring each side over so the folds meet at 60° at the centre.'],
+    [`<polygon points="60,98 25,36 40,30 60,40 80,28 95,36" ${sq}/><line x1="60" y1="98" x2="60" y2="30" ${da}/>`, 'Fold in <b>half</b> again, lining up the edges. You now have a 30° wedge.'],
+    [`<polygon points="60,102 38,20 82,20" fill="#d9dde6" stroke="#7cc4ff" stroke-width="1.5"/><polygon points="60,102 44,42 50,40 52,30 60,36 66,26 70,46" fill="#fff" stroke="#111" stroke-width="1"/><text x="88" y="60" font-size="18" fill="#ffd27c">✂</text>`, 'Line the template\'s point up with the centre point. Cut away the <b>grey</b> parts through all the layers.'],
+    [`<g transform="translate(60,55)">${[0, 60, 120, 180, 240, 300].map(a => `<polygon transform="rotate(${a})" points="0,0 -5,-10 0,-42 5,-10" fill="#fbfcff"/><line transform="rotate(${a})" x1="0" y1="-20" x2="-7" y2="-27" stroke="#fbfcff" stroke-width="3"/><line transform="rotate(${a})" x1="0" y1="-20" x2="7" y2="-27" stroke="#fbfcff" stroke-width="3"/>`).join('')}</g>`, 'Unfold carefully. Press it flat under a heavy book.'],
+  ];
+  document.getElementById('steps').innerHTML = steps.map(([svg, txt], i) =>
+    `<div class="stepc"><svg viewBox="0 0 120 110">${svg}</svg><b>${i + 1}.</b> ${txt}</div>`).join('');
+  return steps;
+}
+
+function updatePaper() {
+  buildPaper();
+  document.getElementById('templateBox').innerHTML = templateSVG(false);
+  drawPreview();
+  const n = paper.data.loops.reduce((s, L) => s + L.length, 0);
+  document.getElementById('paperNote').textContent = sim.radius < 8 ? 'Grow a bigger crystal first for a more interesting template.' :
+    `${n} straight cuts in the wedge · smallest feature ≈ ${paper.feature} mm`;
+}
+stepSVGs();
+document.querySelectorAll('.tab').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === b));
+  const paperOn = b.dataset.tab === 'paper';
+  document.getElementById('growTab').classList.toggle('hidden', paperOn);
+  document.getElementById('paperTab').classList.toggle('hidden', !paperOn);
+  if (paperOn) updatePaper(); else layoutDiagram();
+});
+seg('detailSeg', v => { paper.feature = +v; updatePaper(); });
+document.getElementById('paperSel').onchange = e => { paper.side = +e.target.value; updatePaper(); };
+document.getElementById('refreshBtn').onclick = updatePaper;
+document.getElementById('printBtn').onclick = () => {
+  const sideCm = (paper.side / 10).toFixed(0);
+  document.getElementById('printSheet').innerHTML = `<h2 style="margin:0 0 3mm">Paper snowflake template</h2>
+    <p style="margin:0 0 4mm">Grown at alexmoorephysics.com. Print at <b>100% / actual size</b> and check the 20 mm scale bar. Use a ${sideCm} cm square of thin paper.</p>
+    <div class="pwrap"><div>${templateSVG(true)}</div><ol>
+    <li>Fold the square in half along the diagonal to make a triangle.</li>
+    <li>Fold in half and unfold to mark the centre of the long edge.</li>
+    <li>Fold into thirds: bring each side over so the folds meet at 60° at the centre point.</li>
+    <li>Fold in half again to make a 30° wedge.</li>
+    <li>Cut out this template. Hold it on the wedge with its point at the centre point and its sides along the folded edges.</li>
+    <li>Cut away the grey parts through all the layers, then unfold.</li></ol></div>`;
+  setTimeout(() => window.print(), 50);
+};
+
+// ---------- start ----------
+newCrystal();
+drawDiagramBase();
+layoutDiagram();
+setConditions(state.T, state.S);
+requestAnimationFrame(frame);
+window.__snow = { state, sim, side, paper, updatePaper };
+})();
+</script>
+</body>
+</html>
