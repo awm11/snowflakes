@@ -95,22 +95,38 @@
     #printSheet ol { margin: 0; padding-left: 5mm; }
     #printSheet li { margin-bottom: 2mm; }
   }
+
+  #threeWrap { position: relative; width: 100%; height: min(72vh, 760px); border-radius: 12px; overflow: hidden;
+    background: radial-gradient(ellipse at 50% 35%, #2a4580 0%, #101c3e 55%, #070c1d 100%); }
+  #threeCanvas { width: 100%; height: 100%; display: block; touch-action: none; }
+  #threeMsg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); pointer-events: none; text-align: center; padding: 20px; }
+
+  .titlerow { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .inspired { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text);
+    background: rgba(255,255,255,.06); border: 1px solid #3a4f8c; border-radius: 999px; padding: 5px 14px 5px 5px; font-size: 13.5px;
+    transition: background .15s, border-color .15s, transform .15s; }
+  .inspired:hover { background: rgba(255,255,255,.12); border-color: #7cc4ff; transform: translateY(-1px); }
+  .inspired .play { width: 30px; height: 30px; border-radius: 50%; background: #e62117; color: #fff; display: grid; place-items: center; font-size: 12px; padding-left: 2px; }
+  .inspired small { display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); line-height: 1.2; }
 </style>
 </head>
 <body>
 <header>
-  <h1>❄ Grow a Snowflake</h1>
+  <div class="titlerow"><h1>❄ Grow a Snowflake</h1>
+    <a class="inspired" href="https://www.youtube.com/watch?v=ao2Jfm35XeE" target="_blank" rel="noopener">
+      <span class="play">▶</span><span><small>Inspired by</small>Veritasium · The Snowflake Mystery, with Ken Libbrecht</span></a></div>
   <p>Steer the temperature and humidity of the growth chamber and watch an ice crystal grow. Drag the point on the morphology (Nakaya) diagram, use the sliders, or press <b>Auto‑drift</b> to send the crystal on a journey through a changing cloud. The final shape records every condition it passed through.</p>
 </header>
 <nav class="tabs" role="tablist">
   <button class="tab on" data-tab="grow" role="tab">❄ Grow</button>
+  <button class="tab" data-tab="three" role="tab">◇ 3D view</button>
   <button class="tab" data-tab="paper" role="tab">✂ Paper snowflake</button>
 </nav>
 <main id="growTab">
   <section class="card">
     <h2>Growth chamber · looking down the c‑axis</h2>
     <div id="chamberWrap">
-      <canvas id="chamber" width="800" height="800" aria-label="Snowflake growth chamber"></canvas>
+      <canvas id="chamber" width="1000" height="1000" aria-label="Snowflake growth chamber"></canvas>
       <div id="status">Growing…</div>
       <div id="chamberLegend"><span id="legTitle"></span><div class="bar" id="legBar"></div><div class="ends"><span id="legA"></span><span id="legB"></span></div></div>
     </div>
@@ -172,6 +188,27 @@
   </section>
 </main>
 
+
+<main id="threeTab" class="hidden" style="grid-template-columns: 1fr;">
+  <section class="card">
+    <h2>3D view · drag to rotate, scroll or pinch to zoom, right-drag to pan</h2>
+    <div id="threeWrap"><canvas id="threeCanvas"></canvas><div id="threeMsg"></div></div>
+    <div class="row" style="margin-top:12px; justify-content:space-between">
+      <div class="row">
+        <button class="btn" id="t3Refresh">↻ Use current crystal</button>
+        <button class="btn on" id="t3Spin">⟳ Auto-rotate</button>
+        <button class="btn" id="t3Reset">⌖ Reset view</button>
+      </div>
+      <div class="row"><span class="lbl">Colour</span>
+        <div class="seg" id="t3Colour"><button data-v="ice" class="on">Ice</button><button data-v="temp">Temperature when formed</button><button data-v="time">Time formed</button></div>
+      </div>
+      <div class="row"><span class="lbl">Plate thickness</span>
+        <div class="seg" id="t3Thick"><button data-v="1">True</button><button data-v="2" class="on">2×</button><button data-v="6">6×</button></div>
+      </div>
+    </div>
+    <p class="lbl" id="t3Note" style="margin:10px 0 0"></p>
+  </section>
+</main>
 <main id="paperTab" class="hidden">
   <section class="card">
     <h2>Cutting template · one 30° wedge of your crystal</h2>
@@ -211,8 +248,8 @@
 // Snowflake growth core: Gravner–Griffeath style hexagonal vapour-diffusion model
 // with a held far-field vapour density (humidity) and temperature-dependent kinetics.
 (function (root) {
-  // The crystal is 6-fold symmetric, so only one 60-degree sector (axial q>=1, r>=0, plus the
-  // origin) is computed. Cells just outside the sector ("ghosts") are refreshed from their
+  // The crystal has 12-fold (hexagonal + mirror) symmetry, so only one 30-degree wedge
+  // (axial q>=1, 0<=r<=q, plus the origin) is computed. Cells just outside the sector ("ghosts") are refreshed from their
   // rotated equivalents, and unfold() copies the sector to the whole grid for drawing.
   function makeSim(N) {
     const c0 = (N - 1) >> 1;
@@ -222,6 +259,7 @@
       a: new Uint8Array(size), b: new Float32Array(size), c: new Float32Array(size), d: new Float32Array(size),
       d2: new Float32Array(size), rr: new Float32Array(size), tAt: new Float32Array(size), TAt: new Float32Array(size),
       nb: new Uint8Array(size), att: new Int32Array(size), bnd: new Int32Array(size), canon: new Int32Array(size),
+      act: null, nAct: 0, actN: -1, actAge: 0,
       steps: 0, radius: 1, time: 0,
       params: { rho: 0.6, beta: 1.6, alpha: 0.4, theta: 0.025, kappa: 0.0025, mu: 0.015, gamma: 0.0005 },
     };
@@ -234,6 +272,7 @@
       S.rr[k] = Math.sqrt(x * x + y * y);
       let qq = q, rq = r, n = 0;
       if (!(qq === 0 && rq === 0)) while (!(qq >= 1 && rq >= 0)) { const t = qq; qq = -rq; rq = t + rq; if (++n > 6) throw new Error('sector'); }
+      if (rq > qq) { const t = qq; qq = rq; rq = t; } // mirror line: 12-fold symmetry, compute a 30-degree wedge
       S.canon[k] = (rq + c0) * N + (qq + c0);
       if (S.canon[k] === k && S.rr[k] <= S.maxR) comp.push(k);
     }
@@ -241,6 +280,7 @@
     S.comp = Int32Array.from(comp);
     S.compR = Float32Array.from(comp.map(k => S.rr[k]));
     for (const k of comp) for (const o of [-1, 1, -N, N, 1 - N, N - 1]) { const g = k + o; if (S.canon[g] !== g) ghostSet.add(g); }
+    S.act = new Int32Array(comp.length);
     S.ghost = Int32Array.from(ghostSet);
     S.ghostSrc = Int32Array.from([...ghostSet].map(g => S.canon[g]));
     reset(S, 0.6);
@@ -250,11 +290,14 @@
     S.a.fill(0); S.b.fill(0); S.c.fill(0); S.d.fill(rho); S.tAt.fill(0); S.TAt.fill(0); S.nb.fill(0);
     const k = S.c0 * S.N + S.c0;
     S.a[k] = 1; S.c[k] = 1; S.d[k] = 0;
-    S.steps = 0; S.radius = 1; S.time = 0;
+    S.steps = 0; S.radius = 1; S.time = 0; S.actN = -1; S.prevFar = 0;
   }
   function syncD(S) { const g = S.ghost, src = S.ghostSrc, d = S.d; for (let m = 0; m < g.length; m++) d[g[m]] = d[src[m]]; }
   function syncA(S) { const g = S.ghost, src = S.ghostSrc, a = S.a; for (let m = 0; m < g.length; m++) a[g[m]] = a[src[m]]; }
-  function farR(S) { return Math.min(S.maxR, S.radius + 20 + 0.5 * S.radius); }
+  // distance to the held far-field vapour. Diffusion-limited (branching) growth needs a distant
+  // reservoir; faceted, attachment-limited growth barely depletes the vapour, so a close one is
+  // fine there and makes those slow crystals much cheaper to compute.
+  function farR(S) { const f = S.params.far == null ? 1 : S.params.far; return Math.min(S.maxR, S.radius + 8 + (12 + 0.5 * S.radius) * f); }
   function count(S, R) { // number of computed cells with radius <= R
     const cr = S.compR; let lo = 0, hi = cr.length;
     while (lo < hi) { const m = (lo + hi) >> 1; if (cr[m] <= R) lo = m + 1; else hi = m; }
@@ -263,11 +306,19 @@
   function step(S, T) {
     const { N, a, b, c, d, d2, rr, nb, comp } = S;
     const p = S.params, rho = p.rho;
-    const Rfar = farR(S), n = count(S, Rfar + 2.5);
+    const Rfar = farR(S), nc = count(S, Rfar + 2.5);
+    // active list: computed cells inside the far field that are not yet ice (ice never melts)
+    if (nc !== S.actN || ++S.actAge > 40) {
+      let na = 0; const act = S.act, prev = S.prevFar || 0;
+      for (let m = 0; m < nc; m++) { const k = comp[m]; if (!a[k]) { act[na++] = k; if (rr[k] > prev) d[k] = rho; } }
+      S.prevFar = Rfar;
+      S.nAct = na; S.actN = nc; S.actAge = 0;
+    }
+    const act = S.act, n = S.nAct;
     syncD(S);
     // 1. diffusion (crystal cells reflect)
     for (let m = 0; m < n; m++) {
-      const k = comp[m];
+      const k = act[m];
       if (a[k]) { d2[k] = 0; continue; }
       if (rr[k] > Rfar) { d2[k] = rho; continue; }
       const dk = d[k];
@@ -280,13 +331,12 @@
       q = k - 1 + N; s += a[q] ? dk : d[q];
       d2[k] = s / 7;
     }
-    for (let m = 0; m < n; m++) { const k = comp[m]; d[k] = d2[k]; }
-    syncD(S);
-    // 2. freezing on boundary cells
+    // 2. copy back + freezing on boundary cells (freezing reads no neighbour vapour)
     const kap = p.kappa, bnd = S.bnd;
     let nB = 0;
     for (let m = 0; m < n; m++) {
-      const k = comp[m];
+      const k = act[m];
+      d[k] = d2[k];
       if (a[k]) continue;
       const nn = a[k - 1] + a[k + 1] + a[k - N] + a[k + N] + a[k + 1 - N] + a[k - 1 + N];
       nb[k] = nn;
@@ -342,7 +392,7 @@
       }
     }
   }
-  const api = { makeSim, reset, step, unfold };
+  const api = { makeSim, reset, step, unfold, farR };
   if (typeof module !== 'undefined') module.exports = api; else root.SnowSim = api;
 })(this);
 
@@ -364,6 +414,7 @@
   const PLATE = [[0, 0.45], [-1.5, 0.6], [-3, 0.35], [-4, 0.12], [-5, 0.03], [-6.5, 0.08], [-8.5, 0.2], [-10, 0.45], [-12, 0.85], [-14, 1.0], [-16, 1.0], [-18, 0.85], [-21, 0.55], [-24, 0.4], [-30, 0.35]];
   // basal (c-axis) growth tendency: 1 = long columns/needles
   const COLUMN = [[0, 0.15], [-2, 0.1], [-3, 0.45], [-4.5, 1.0], [-6, 0.95], [-8, 0.6], [-10, 0.2], [-12, 0.05], [-16, 0.03], [-19, 0.1], [-22, 0.35], [-25, 0.45], [-30, 0.45]];
+  api.tune = { bk: 1.4, f0: 0.25, fw: 0.5 };
   api.plateFactor = T => interp(PLATE, T);
   api.columnFactor = T => interp(COLUMN, T);
   // T in degC, S = excess vapour density over ice in g/m^3
@@ -373,8 +424,9 @@
     const drive = Math.min(1.2, s);
     return {
       rho: 0.24 + 0.34 * drive,
-      beta: 1.25 + 2.3 * (1 - Math.min(1, P * drive * 1.4)),
+      beta: 1.25 + 2.3 * (1 - Math.min(1, P * drive * api.tune.bk)),
       alpha: 0.25, theta: 0.025, kappa: 0.003, mu: 0.02, gamma: 0.0003,
+      far: Math.min(1, Math.max(0, (P * drive * api.tune.bk - api.tune.f0) / api.tune.fw)),
       inPlane: 0.06 + 0.94 * P,          // in-plane growth rate multiplier
       basal: api.columnFactor(T) * s,    // c-axis growth rate
     };
@@ -386,7 +438,7 @@
 (() => {
 'use strict';
 const Sim = window.SnowSim;
-const N = 401;
+const N = 601;
 const sim = Sim.makeSim(N);
 const MAXR = sim.maxR;
 const SC = MAXR / 97; // grid scale relative to the original 201-cell grid
@@ -787,7 +839,7 @@ function autoTarget(t) {
 // presets & journeys
 const PRESETS = {
   plate:   { T: -2.0, S: 0.07 },
-  sector:  { T: -13,  S: 0.13 },
+  sector:  { T: -12,  S: 0.2 },
   stellar: { T: -15,  S: 0.21 },
   fern:    { T: -15,  S: 0.31 },
   column:  { T: -7,   S: 0.08 },
@@ -1139,10 +1191,13 @@ function updatePaper() {
 stepSVGs();
 document.querySelectorAll('.tab').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === b));
-  const paperOn = b.dataset.tab === 'paper';
-  document.getElementById('growTab').classList.toggle('hidden', paperOn);
-  document.getElementById('paperTab').classList.toggle('hidden', !paperOn);
-  if (paperOn) updatePaper(); else layoutDiagram();
+  const tab = b.dataset.tab;
+  for (const id of ['grow', 'three', 'paper']) document.getElementById(id + 'Tab').classList.toggle('hidden', id !== tab);
+  state.tab = tab;
+  if (tab === 'paper') updatePaper();
+  else if (tab === 'three') { if (window.Snow3D) window.Snow3D.show(); }
+  else layoutDiagram();
+  if (tab !== 'three' && window.Snow3D) window.Snow3D.hide();
 });
 seg('detailSeg', v => { paper.feature = +v; updatePaper(); });
 document.getElementById('paperSel').onchange = e => { paper.side = +e.target.value; updatePaper(); };
@@ -1167,8 +1222,10 @@ drawDiagramBase();
 layoutDiagram();
 setConditions(state.T, state.S);
 requestAnimationFrame(frame);
-window.__snow = { state, sim, side, paper, updatePaper };
+window.__snow = { state, sim, side, paper, updatePaper, attachedAt, traceLoops, dpClosed, area, tColor, timeColor, MAXR, SC, Sim, N };
 })();
 </script>
+<script type="importmap">{ "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }</script>
+<script type="module" src="./snow3d.js"></script>
 </body>
 </html>
