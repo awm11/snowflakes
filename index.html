@@ -461,7 +461,7 @@ let stepsAcc = 0, gNum = 0.01, gDen = 1, Rprev = 1;
 const side = { layers: [], halfH: 0, dz: 0.5 * SC };
 
 function resetSide() {
-  side.layers = [{ w: 1.2, T: state.T, t: 0 }, { w: 1.2, T: state.T, t: 0 }, { w: 1.2, T: state.T, t: 0 }];
+  side.layers = [0, 1, 2].map(() => ({ w: 1.2, T: state.T, t: 0, tw: 0 }));
   side.halfH = side.layers.length * side.dz; side.acc = 0;
 }
 function newCrystal() {
@@ -603,7 +603,8 @@ function updateSide(dt, p, dR) {
   const wInt = clamp(1 - 1.25 * Sim.plateFactor(state.T) * drive, 0.04, 1);
   if (dR > 0) for (let i = 0; i < L.length; i++) {
     const end = i >= L.length - 4;
-    L[i].w = Math.min(R, L[i].w + dR * (end ? 1.6 : wInt));
+    const w = Math.min(R, L[i].w + dR * (end ? 1.6 : wInt));
+    if (w > L[i].w) { L[i].w = w; L[i].tw = state.time; } // tw: when this slice last grew sideways
   }
     // basal growth lengthens the c-axis
   if (side.halfH < MAXR * 1.05) {
@@ -611,7 +612,7 @@ function updateSide(dt, p, dR) {
     while (side.acc >= side.dz) {
       side.acc -= side.dz;
       const last = L[L.length - 1];
-      L.push({ w: last.w, T: state.T, t: state.time });
+      L.push({ w: last.w, T: state.T, t: state.time, tw: state.time });
       side.halfH = L.length * side.dz;
     }
   }
