@@ -155,7 +155,8 @@ function plateGeometry(field, G, Rv, R, exag) {
   geo.setIndex(nv > 65535 ? new THREE.Uint32BufferAttribute(ind, 1) : new THREE.Uint16BufferAttribute(ind, 1));
   geo.computeVertexNormals();
   let maxH = 0; for (let o = 0; o < H.length; o++) if (H[o] > maxH) maxH = H[o];
-  return { geo, maxH };
+  const mid = ((G - 1) >> 1) * G + ((G - 1) >> 1);
+  return { geo, maxH, hC: H[mid] || maxH };
 }
 
 function disposeGroup() {
@@ -187,22 +188,31 @@ function build() {
   const nInt = L.length - nEnd;                              // interior (column) layers
   const colHalf = nInt * dz;                                 // half-length of column body
   const isPlate = nInt <= 3 || colHalf < R * 0.05;
-  const { geo, maxH } = plateGeometry(field, G, Rv, R, exag);
-  const plateYs = isPlate ? [0] : [colHalf + maxH / 2, -colHalf - maxH / 2];
-  plateYs.forEach((y, n) => { const m = new THREE.Mesh(n ? geo.clone() : geo, plateMat); m.position.y = y; group.add(m); });
-  const capT = maxH;
-  if (!isPlate) {
+  // A column only gets separate end plates if they actually overhang it (a capped column).
+  // Otherwise it's a plain column: hexagonal prisms all the way, with flat end faces.
+  const colEndW = nInt > 0 ? L[nInt - 1].w : 0;
+  const hasCaps = !isPlate && R > 1.25 * colEndW;
+  const nCol = isPlate ? 0 : (hasCaps ? nInt : L.length);
+  let maxH = 0, capT = 0;
+  if (isPlate || hasCaps) {
+    const pg = plateGeometry(field, G, Rv, R, exag);
+    maxH = pg.maxH; capT = pg.hC;
+    // caps sit with their centre resting on the end of the column
+    const ys = isPlate ? [0] : [colHalf + pg.hC / 2, -colHalf - pg.hC / 2];
+    ys.forEach((y, n) => { const m = new THREE.Mesh(n ? pg.geo.clone() : pg.geo, plateMat); m.position.y = y; group.add(m); });
+  }
+  if (nCol) {
     // column body: hexagonal prisms grouped by similar width, vertices pointing along the arms
     const colMats = {};
     let i = 0;
-    while (i < nInt) {
+    while (i < nCol) {
       let j = i; const w0 = L[i].w;
-      while (j + 1 < nInt && Math.abs(L[j + 1].w - w0) <= Math.max(1.5, 0.08 * w0)) j++;
+      while (j + 1 < nCol && Math.abs(L[j + 1].w - w0) <= Math.max(1.5, 0.08 * w0)) j++;
       const w = Math.max(1, L[j].w), z0 = i * dz, z1 = (j + 1) * dz;
-      let colr = 0xffffff;
-      if (opts.colour === 'temp') { const c = tColor(L[i].T); colr = new THREE.Color(c[0] / 255, c[1] / 255, c[2] / 255); }
-      else if (opts.colour === 'time') { const c = timeColor(Math.min(1, L[i].t / Math.max(0.001, state.time))); colr = new THREE.Color(c[0] / 255, c[1] / 255, c[2] / 255); }
-      const ck = typeof colr === 'number' ? 'w' : colr.getHexString();
+      let c = [150, 195, 240];
+      if (opts.colour === 'temp') c = tColor(L[i].T);
+      else if (opts.colour === 'time') c = timeColor(Math.min(1, L[i].t / Math.max(0.001, state.time)));
+      const colr = new THREE.Color(c[0] / 255, c[1] / 255, c[2] / 255), ck = colr.getHexString();
       const mat = colMats[ck] || (colMats[ck] = iceMaterial({ color: colr }));
       const mk = (yc, h) => { const g = new THREE.CylinderGeometry(w, w, h, 6, 1, false, Math.PI / 2); const m = new THREE.Mesh(g, mat); m.position.y = yc; group.add(m); };
       if (i === 0) mk(0, 2 * z1); else { mk((z0 + z1) / 2, z1 - z0); mk(-(z0 + z1) / 2, z1 - z0); }
@@ -211,7 +221,7 @@ function build() {
   }
   scene.add(group);
   // frame the camera
-  const ext = Math.max(R, isPlate ? 0 : colHalf + capT);
+  const ext = Math.max(R, isPlate ? 0 : (hasCaps ? colHalf + capT : side.halfH));
   const fitDist = ext / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)) * (isPlate ? 1.1 : 1.45);
   if (!built || resetNext || lastPlate !== isPlate) {
     lastPlate = isPlate;
@@ -227,8 +237,9 @@ function build() {
   const um = v => (v * 0.025 / S.SC * 1000);
   note.textContent = (isPlate
     ? `Plate about ${(2 * R * 0.025 / S.SC).toFixed(1)} mm across, about ${um(maxH / exag).toFixed(0)} µm thick at the thickest point`
-    : `Column about ${(2 * side.halfH * 0.025 / S.SC).toFixed(2)} mm long with end plates ${(2 * R * 0.025 / S.SC).toFixed(2)} mm across`)
-    + (exag === 1 ? ' (true proportions).' : ` (plate thickness exaggerated ${exag}×).`)
+    : hasCaps ? `Capped column about ${(2 * side.halfH * 0.025 / S.SC).toFixed(2)} mm long with end plates ${(2 * R * 0.025 / S.SC).toFixed(2)} mm across`
+    : `Column about ${(2 * side.halfH * 0.025 / S.SC).toFixed(2)} mm long and ${(2 * colEndW * 0.025 / S.SC).toFixed(2)} mm across`)
+    + (isPlate || hasCaps ? (exag === 1 ? ' (true proportions).' : ` (plate thickness exaggerated ${exag}×).`) : ' (true proportions; the thickness setting only affects plates).')
     + ' Thickness is a qualitative model: thickest at the centre and along the ribs, tapering to razor‑thin edges, and thinner for ice that grew near −15 °C.';
   msg.textContent = S.sim.radius < 4 ? 'Grow a crystal first, then come back here.' : '';
 }
