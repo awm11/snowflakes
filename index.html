@@ -194,7 +194,7 @@
       <summary>How the model works</summary>
       <p>The crystal grows on a hexagonal grid using a cellular automaton based on the Gravner–Griffeath model of snow‑crystal growth. Water vapour diffuses through the chamber and is held at a fixed density far from the crystal, which you set with the humidity control. At the crystal's edge, vapour condenses into a thin boundary layer. A cell freezes onto the crystal once enough mass has built up. Sites with more ice neighbours attach more easily, and that's what makes the facets flat.</p>
       <p>Corners and tips stick further out into the vapour, so they collect more of it. At high supersaturation this runs away into branches (the Mullins–Sekerka instability). At low supersaturation, attachment is the slow step, so the facets win and the crystal stays a solid hexagon.</p>
-      <p>Temperature changes the relative growth rates of the basal facets (top and bottom) and the prism facets (the six sides). Here that's done by tuning the attachment threshold and the in‑plane growth rate against a smoothed version of the measured habit changes. Plates are favoured near −2 °C and −15 °C, and columns near −5 °C and below about −22 °C. The side view is a simpler 1‑D model of thickness along the c‑axis. It isn't a full 3‑D simulation, but it shows the habit changes and records the crystal's history.</p>
+      <p>Temperature changes the relative growth rates of the basal facets (top and bottom) and the prism facets (the six sides). Here that's done by tuning the attachment threshold and the in‑plane growth rate against a smoothed version of the measured habit changes. Plates are favoured near −2 °C and −15 °C, and columns near −5 °C and below about −22 °C. The side view is a simpler 1‑D model of thickness along the c‑axis. It isn't a full 3‑D simulation, but it shows the habit changes and records the crystal's history. Thickening slows as the crystal widens, because each new layer on a wide plate needs far more ice. When plates sprout from both ends of a short column, they compete for vapour. Whichever gets slightly ahead shades the other, which leaves a big plate with a stunted partner: a double plate, which Libbrecht notes is common and often mistaken for an ordinary stellar plate. On a longer column the two plates stay similar (a capped column).</p>
       <p>Real snowflakes are about 1–5 mm across and take roughly 10–30 minutes to grow as they fall. The time scale here is sped up and the parameter mapping is qualitative.</p>
     </details>
   </section>
@@ -527,9 +527,13 @@ const state = {
 let stepsAcc = 0, gNum = 0.01, gDen = 1, Rprev = 1;
 const side = { layers: [], halfH: 0, dz: 0.5 * SC };
 
+// The side view keeps the upper and lower halves of the crystal separately (side.layers / side.lower),
+// so that on a short column one end plate can outgrow and shade the other, as in real double plates.
 function resetSide() {
-  side.layers = [0, 1, 2].map(() => ({ w: 1.2, T: state.T, t: 0, tw: 0 }));
-  side.halfH = side.layers.length * side.dz; side.acc = 0;
+  const mk = () => [0, 1, 2].map(() => ({ w: 1.2, T: state.T, t: 0, tw: 0 }));
+  side.layers = mk(); side.lower = mk();
+  side.halfH = side.halfHLow = 3 * side.dz; side.acc = 0;
+  side.bias = (Math.random() < 0.5 ? 1 : -1) * (0.03 + 0.04 * Math.random()); // tiny random head start for one end
 }
 function newCrystal() {
   const p = Sim.mapParams(state.T, state.S);
@@ -681,28 +685,47 @@ function drawChamber() {
 const sideC = document.getElementById('side');
 const sctx = sideC.getContext('2d');
 let sideScale = null;
+const endWidth = L => { let w = 0; for (let i = Math.max(0, L.length - 4); i < L.length; i++) w = Math.max(w, L[i].w); return w; };
 function updateSideWidth(dR) {
-  const L = side.layers;
+  if (dR <= 0) return;
   const drive = Math.min(1.2, state.S / 0.3);
   const R = Math.max(1.2, sim.radius);
   // interior layers are shielded from vapour when growth is diffusion-limited (plate regime)
   const wInt = clamp(1 - 1.25 * Sim.plateFactor(state.T) * drive, 0.04, 1);
-  if (dR > 0) for (let i = 0; i < L.length; i++) {
-    const end = i >= L.length - 4;
-    const w = Math.min(R, L[i].w + dR * (end ? 1.6 : wInt));
-    if (w > L[i].w) { L[i].w = w; L[i].tw = state.time; sideDirty = true; } // tw: when this slice last grew sideways
-  }
+  // Competition between the two end plates (Libbrecht's double plates): when plates sit on a short
+  // column, whichever is bigger catches more vapour and shades the other. The effect fades as the
+  // column gets longer relative to the plates, and is off for a single plate (no column between).
+  const Lu = side.layers, Ll = side.lower;
+  const Wu = endWidth(Lu), Wl = endWidth(Ll), Wb = Math.max(Wu, Wl, 1e-6);
+  const S = (Lu.length - 4) + (Ll.length - 4);                // layers of column between the plates
+  // full competition once the plates are wider than ~2/3 of the column length between them
+  const comp = clamp((S - 2) / 4, 0, 1) * clamp(1.5 - (S * side.dz) / Wb, 0, 1);
+  const p = 6 * comp;
+  let fu = Math.pow(Wu / Wb, p) * (1 + side.bias * comp), fl = Math.pow(Wl / Wb, p) * (1 - side.bias * comp);
+  const fm = Math.max(fu, fl); fu /= fm; fl /= fm;
+  // the leading plate keeps pace with the flake; the shaded one falls behind and stalls
+  const gain = 1.6 - 0.6 * comp;
+  const grow = (L, f) => {
+    for (let i = 0; i < L.length; i++) {
+      const end = i >= L.length - 4;
+      const w = Math.min(R, L[i].w + dR * (end ? gain * f : wInt));
+      if (w > L[i].w) { L[i].w = w; L[i].tw = state.time; sideDirty = true; } // tw: when this slice last grew sideways
+    }
+  };
+  grow(Lu, fu); grow(Ll, fl);
 }
 function updateSideBasal(dt, p) {
-  const L = side.layers;
-  // basal growth lengthens the c-axis
-  if (side.halfH < MAXR * 1.05) {
-    side.acc += SC * 2.2 * p.basal * state.speed * dt;
+  // Basal growth lengthens the c-axis. Adding a layer to a wide plate needs far more ice than adding
+  // one to a narrow column, and the vapour supply grows only slowly with size, so the thickening rate
+  // falls off with the area being covered: a big plate in column weather thickens only slightly.
+  const wEnd = Math.max(endWidth(side.layers), endWidth(side.lower), 1);
+  const areaLimit = Math.min(1, Math.pow(12 * SC / wEnd, 2));
+  if (Math.max(side.halfH, side.halfHLow) < MAXR * 1.05) {
+    side.acc += SC * 2.2 * p.basal * areaLimit * state.speed * dt;
     while (side.acc >= side.dz) {
       side.acc -= side.dz;
-      const last = L[L.length - 1];
-      L.push({ w: last.w, T: state.T, t: state.time, tw: state.time });
-      side.halfH = L.length * side.dz;
+      for (const L of [side.layers, side.lower]) { const last = L[L.length - 1]; L.push({ w: last.w, T: state.T, t: state.time, tw: state.time }); }
+      side.halfH = side.layers.length * side.dz; side.halfHLow = side.lower.length * side.dz;
       sideDirty = true;
     }
   }
@@ -710,35 +733,43 @@ function updateSideBasal(dt, p) {
 function renderSide() {
   const W = sideC.width, H = sideC.height;
   sctx.clearRect(0, 0, W, H);
-  const L = side.layers;
-  let maxW = 1; for (const l of L) if (l.w > maxW) maxW = l.w;
-  const target = Math.min(9, (W - 40) / (2 * maxW), (H - 30) / (2 * side.halfH));
+  const Lu = side.layers, Ll = side.lower;
+  let maxW = 1; for (const l of Lu) if (l.w > maxW) maxW = l.w; for (const l of Ll) if (l.w > maxW) maxW = l.w;
+  const hMax = Math.max(side.halfH, side.halfHLow);
+  const target = Math.min(9, (W - 40) / (2 * maxW), (H - 30) / (2 * hMax));
   sideScale = sideScale == null ? target : (target < sideScale ? target : sideScale + (target - sideScale) * 0.05);
   sideDirty = Math.abs(target - sideScale) > 0.002; // keep redrawing only while the zoom eases
   const k = sideScale, cx = W / 2, cy = H / 2;
-  // axis
   sctx.strokeStyle = 'rgba(124,196,255,.25)'; sctx.setLineDash([4, 4]);
   sctx.beginPath(); sctx.moveTo(cx, 8); sctx.lineTo(cx, H - 8); sctx.stroke(); sctx.setLineDash([]);
   sctx.fillStyle = 'rgba(159,176,216,.8)'; sctx.font = '11px system-ui'; sctx.fillText('c‑axis', cx + 5, 16);
   const dzp = side.dz * k;
-  for (let i = 0; i < L.length; i++) {
-    const l = L[i]; const hw = l.w * k;
-    let col;
-    if (state.view === 'temp') col = tColor(l.T);
-    else if (state.view === 'time') col = timeColor(clamp(l.t / Math.max(0.001, state.time), 0, 1));
-    else col = [200, 225, 255];
-    const g = sctx.createLinearGradient(cx - hw, 0, cx + hw, 0);
-    const c1 = `rgb(${col[0] * 0.55 | 0},${col[1] * 0.6 | 0},${col[2] * 0.75 | 0})`, c2 = `rgb(${col[0] | 0},${col[1] | 0},${col[2] | 0})`;
-    g.addColorStop(0, c1); g.addColorStop(0.3, c2); g.addColorStop(0.55, c2); g.addColorStop(1, c1);
-    sctx.fillStyle = g;
-    const yTop = cy - (i + 1) * dzp, yBot = cy + i * dzp;
-    const hh = Math.max(dzp, 0.8) + 0.5;
-    sctx.fillRect(cx - hw, yTop, 2 * hw, hh);
-    sctx.fillRect(cx - hw, yBot, 2 * hw, hh);
-  }
-  const aspect = (2 * side.halfH) / (2 * maxW);
+  const drawHalf = (L, dir) => {
+    for (let i = 0; i < L.length; i++) {
+      const l = L[i]; const hw = l.w * k;
+      let col;
+      if (state.view === 'temp') col = tColor(l.T);
+      else if (state.view === 'time') col = timeColor(clamp(l.t / Math.max(0.001, state.time), 0, 1));
+      else col = [200, 225, 255];
+      const g = sctx.createLinearGradient(cx - hw, 0, cx + hw, 0);
+      const c1 = `rgb(${col[0] * 0.55 | 0},${col[1] * 0.6 | 0},${col[2] * 0.75 | 0})`, c2 = `rgb(${col[0] | 0},${col[1] | 0},${col[2] | 0})`;
+      g.addColorStop(0, c1); g.addColorStop(0.3, c2); g.addColorStop(0.55, c2); g.addColorStop(1, c1);
+      sctx.fillStyle = g;
+      const y = dir < 0 ? cy - (i + 1) * dzp : cy + i * dzp;
+      sctx.fillRect(cx - hw, y, 2 * hw, Math.max(dzp, 0.8) + 0.5);
+    }
+  };
+  drawHalf(Lu, -1); drawHalf(Ll, 1);
+  const aspect = (side.halfH + side.halfHLow) / (2 * maxW);
   sctx.fillStyle = 'rgba(232,238,252,.85)'; sctx.font = '12px system-ui';
   sctx.fillText(`length : width ≈ ${aspect >= 1 ? aspect.toFixed(1) + ' : 1' : '1 : ' + (1 / aspect).toFixed(1)}`, 10, H - 10);
+  // double plate: report the two end plates when they differ
+  const Wu = endWidth(Lu), Wl = endWidth(Ll);
+  if (Lu.length + Ll.length > 14 && Math.abs(Wu - Wl) > 0.08 * Math.max(Wu, Wl)) {
+    sctx.textAlign = 'right';
+    sctx.fillText(`end plates ≈ ${(2 * Wu * 0.025 / SC).toFixed(2)} mm (top) / ${(2 * Wl * 0.025 / SC).toFixed(2)} mm (bottom)`, W - 10, H - 10);
+    sctx.textAlign = 'left';
+  }
 }
 
 // ---------- diagram ----------

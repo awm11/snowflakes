@@ -178,46 +178,44 @@ function build() {
   // the time it last grew sideways (tw). That slice's cross-section is the top-view crystal as it
   // was at time tw (cells attached by then), trimmed to the slice's width. So a capped column gets
   // a hexagonal core from early on and end plates with the full branched outline.
-  const L = side.layers, dz = side.dz;
-  const isPlate = L.length <= 7 || side.halfH < R * 0.05;
+  const L = side.layers, Lo = side.lower || side.layers, dz = side.dz;
+  const isPlate = Math.max(L.length, Lo.length) <= 7 || Math.max(side.halfH, side.halfHLow || 0) < R * 0.05;
   const exag = isPlate ? opts.thick : 1;                  // exaggeration only makes sense for plates
   const hz = dz * exag;
-  // group neighbouring slices with similar width into slabs
-  const groups = [];
-  for (let i = 0; i < L.length;) {
-    let j = i; const w0 = L[i].w;
-    while (j + 1 < L.length && Math.abs(L[j + 1].w - w0) <= Math.max(1.5, 0.06 * w0)) j++;
-    let w = 0, tw = 0; for (let k = i; k <= j; k++) { w = Math.max(w, L[k].w); tw = Math.max(tw, L[k].tw || 0); }
-    groups.push({ i, j, w, tw, T: L[i].T, t: L[i].t });
-    i = j + 1;
-  }
   const slabMask = new Uint8Array(G * G);
   const matCache = {};
-  for (const g of groups) {
-    const wr = Math.min(R, g.w) * 1.03 + 1;
-    for (let o = 0; o < slabMask.length; o++) slabMask[o] = (mask[o] && tA[o] <= g.tw + 1e-6 && rP[o] <= wr) ? 1 : 0;
-    // always keep at least the seed hexagon so thin early slices aren't empty
-    const sh = shapesFromMask(slabMask, G, Rv, wr);
-    if (!sh.length) continue;
-    const z0 = g.i * hz, z1 = (g.j + 1) * hz, full = g.w >= R * 0.97;
-    let mat = plateMat;
-    if (opts.colour !== 'ice' && !full) {
-      const c = opts.colour === 'temp' ? tColor(g.T) : timeColor(Math.min(1, g.t / Math.max(0.001, state.time)));
-      const key = c.map(v => v | 0).join(',');
-      mat = matCache[key] || (matCache[key] = iceMaterial({ color: new THREE.Color(c[0] / 255, c[1] / 255, c[2] / 255) }));
+  // the upper half builds upwards from the centre, the lower half downwards (they can differ: double plates)
+  for (const [Lh, dir] of [[L, 1], [Lo, -1]]) {
+    // group neighbouring slices with similar width into slabs
+    const groups = [];
+    for (let i = 0; i < Lh.length;) {
+      let j = i; const w0 = Lh[i].w;
+      while (j + 1 < Lh.length && Math.abs(Lh[j + 1].w - w0) <= Math.max(1.5, 0.06 * w0)) j++;
+      let w = 0, tw = 0; for (let k = i; k <= j; k++) { w = Math.max(w, Lh[k].w); tw = Math.max(tw, Lh[k].tw || 0); }
+      groups.push({ i, j, w, tw, T: Lh[i].T, t: Lh[i].t });
+      i = j + 1;
     }
-    const mk = (yc, h) => {
-      const hh = Math.max(h * 0.985, h - 0.3);   // hair-line gap between stacked slabs: no z-fighting
+    for (const g of groups) {
+      const wr = Math.min(R, g.w) * 1.03 + 1;
+      for (let o = 0; o < slabMask.length; o++) slabMask[o] = (mask[o] && tA[o] <= g.tw + 1e-6 && rP[o] <= wr) ? 1 : 0;
+      const sh = shapesFromMask(slabMask, G, Rv, wr);
+      if (!sh.length) continue;
+      const z0 = g.i * hz, z1 = (g.j + 1) * hz, full = g.w >= R * 0.97;
+      let mat = plateMat;
+      if (opts.colour !== 'ice' && !full) {
+        const c = opts.colour === 'temp' ? tColor(g.T) : timeColor(Math.min(1, g.t / Math.max(0.001, state.time)));
+        const key = c.map(v => v | 0).join(',');
+        mat = matCache[key] || (matCache[key] = iceMaterial({ color: new THREE.Color(c[0] / 255, c[1] / 255, c[2] / 255) }));
+      }
+      const h = z1 - z0, hh = Math.max(h * 0.985, h - 0.3);   // hair-line gap between stacked slabs: no z-fighting
       const geo = new THREE.ExtrudeGeometry(sh, { depth: hh, bevelEnabled: false, curveSegments: 1 });
       const nrm = geo.attributes.normal.array;
       for (let i = 0; i < nrm.length; i += 3) if (!(Math.abs(nrm[i]) + Math.abs(nrm[i + 1]) + Math.abs(nrm[i + 2]) > 0)) { nrm[i] = 0; nrm[i + 1] = 0; nrm[i + 2] = 1; }
-      h = hh;
-      geo.translate(0, 0, -h / 2);
-      const m = new THREE.Mesh(geo, mat); m.rotation.x = -Math.PI / 2; m.position.y = yc; group.add(m);
-    };
-    if (g.i === 0) mk(0, 2 * z1); else { mk((z0 + z1) / 2, z1 - z0); mk(-(z0 + z1) / 2, z1 - z0); }
+      geo.translate(0, 0, -hh / 2);
+      const m = new THREE.Mesh(geo, mat); m.rotation.x = -Math.PI / 2; m.position.y = dir * (z0 + z1) / 2; group.add(m);
+    }
   }
-  const halfLen = L.length * hz;
+  const halfLen = Math.max(L.length, Lo.length) * hz;
   let coreW = R; { const ws = L.map(l => l.w).sort((x, y) => x - y); coreW = ws[ws.length >> 1]; }
   const hasCaps = !isPlate && R > 1.25 * coreW;
   scene.add(group);
