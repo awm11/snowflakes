@@ -10,11 +10,14 @@ const msg = document.getElementById('threeMsg');
 const note = document.getElementById('t3Note');
 
 let renderer, scene, camera, controls, group, visible = false, built = false, lastPlate = null;
+// render only when something changes; adapt pixel density to keep frames quick
+let needsRender = true, dpr = 1, maxDpr = 1, frameEma = 16, lastFrame = 0, framesSince = 0;
 const opts = { colour: 'ice', thick: 1, spin: true };
 
 function init() {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, preserveDrawingBuffer: true });
-  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  maxDpr = Math.min(1.5, window.devicePixelRatio || 1); dpr = maxDpr;
+  renderer.setPixelRatio(dpr);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.85;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -37,7 +40,23 @@ function init() {
   scene.add(new THREE.AmbientLight(0x6080c0, 0.35));
   new ResizeObserver(resize).observe(wrap);
   resize();
-  renderer.setAnimationLoop(() => { if (!visible) return; controls.update(); renderer.render(scene, camera); });
+  controls.addEventListener('change', () => { needsRender = true; });
+  renderer.setAnimationLoop(now => {
+    if (!visible) return;
+    const moved = controls.update();
+    if (!moved && !needsRender) { lastFrame = 0; return; }   // idle: nothing to draw
+    renderer.render(scene, camera); needsRender = false;
+    // adaptive resolution while moving: drop pixel density if frames are slow, restore when quick
+    if (lastFrame) { frameEma = frameEma * 0.9 + (now - lastFrame) * 0.1; framesSince++; }
+    lastFrame = now;
+    if (framesSince > 45) {
+      framesSince = 0;
+      let nd = dpr;
+      if (frameEma > 26 && dpr > 0.75) nd = Math.max(0.75, dpr * 0.8);
+      else if (frameEma < 18 && dpr < maxDpr) nd = Math.min(maxDpr, dpr * 1.15);
+      if (nd !== dpr) { dpr = nd; renderer.setPixelRatio(dpr); resize(); }
+    }
+  });
 }
 function resize() {
   if (!renderer) return;
@@ -45,6 +64,7 @@ function resize() {
   if (!w || !h) return;
   renderer.setSize(w, h, false);
   camera.aspect = w / h; camera.updateProjectionMatrix();
+  needsRender = true;
 }
 
 // ---- crystal sampling ----
@@ -123,6 +143,7 @@ function iceMaterial(extra) {
 
 function build() {
   if (!renderer) init();
+  if (S.ensureUnfolded) S.ensureUnfolded();
   disposeGroup();
   const { sim, side, state, tColor, timeColor } = S;
   const R = Math.max(3, sim.radius), Rv = R * 1.03;
@@ -177,6 +198,7 @@ function build() {
   let coreW = R; { const ws = L.map(l => l.w).sort((x, y) => x - y); coreW = ws[ws.length >> 1]; }
   const hasCaps = !isPlate && R > 1.25 * coreW;
   scene.add(group);
+  needsRender = true;
   // frame the camera
   const ext = Math.max(R, halfLen);
   const fitDist = ext / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)) * (isPlate ? 1.1 : 1.45);
@@ -215,7 +237,7 @@ spinBtn.onclick = () => { opts.spin = !opts.spin; spinBtn.classList.toggle('on',
 canvas.addEventListener('pointerdown', () => { if (controls && opts.spin) { opts.spin = false; controls.autoRotate = false; spinBtn.classList.remove('on'); } });
 
 window.Snow3D = {
-  show() { visible = true; try { build(); resize(); } catch (e) { msg.textContent = '3D view could not start: ' + e.message; console.error(e); } },
+  show() { visible = true; needsRender = true; lastFrame = 0; try { build(); resize(); } catch (e) { msg.textContent = '3D view could not start: ' + e.message; console.error(e); } },
   hide() { visible = false; },
 };
 if (S.state.tab === 'three') window.Snow3D.show();

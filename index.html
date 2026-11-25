@@ -244,7 +244,7 @@
   Based on Nakaya's morphology diagram (1954) and K. G. Libbrecht's work on snow crystal growth. Model after J. Gravner &amp; D. Griffeath, “Modeling snow‑crystal growth: a three‑dimensional mesoscopic approach”, <i>Phys. Rev. E</i> 79 (2009), in its 2‑D hexagonal form.
 </footer>
 
-<script>
+<script id="simSrc">
 // Snowflake growth core: Gravner–Griffeath style hexagonal vapour-diffusion model
 // with a held far-field vapour density (humidity) and temperature-dependent kinetics.
 (function (root) {
@@ -469,6 +469,9 @@ function newCrystal() {
   Object.assign(sim.params, p);
   Sim.reset(sim, p.rho);
   Sim.unfold(sim);
+  simGen++;
+  if (worker) worker.postMessage({ type: 'reset', rho: p.rho, gen: simGen });
+  chamberDirty = sideDirty = true;
   state.time = 0; state.done = false; state.trail = [];
   stepsAcc = 0; gNum = 0.01; gDen = 1; Rprev = 1;
   resetSide();
@@ -479,14 +482,20 @@ function newCrystal() {
 // ---------- chamber rendering ----------
 const chamber = document.getElementById('chamber');
 const cctx = chamber.getContext('2d');
-const CW = chamber.width;
-const img = cctx.createImageData(CW, CW);
-const pix = img.data;
-const pxIdx = new Int32Array(CW * CW);
-const pxR = new Float32Array(CW * CW);
+// The chamber is drawn at a resolution matched to the screen, into an off-screen "base" layer that
+// is only redrawn when the crystal or conditions change. Each frame just copies the base layer and
+// adds the vapour particles.
+let CW, img, pix, pxIdx, pxR, pxPerCell, base, bctx;
 const viewR = MAXR * 1.04;
-const pxPerCell = CW / (2 * viewR);
-(function buildMap() {
+let chamberDirty = true, sideDirty = true, hazeClock = 0;
+function setupChamber() {
+  const want = clamp(Math.round(chamber.clientWidth * Math.min(2, window.devicePixelRatio || 1)), 320, 1000);
+  if (CW && Math.abs(want - CW) < CW * 0.1) return;
+  CW = want; chamber.width = chamber.height = CW;
+  img = cctx.createImageData(CW, CW); pix = img.data;
+  pxIdx = new Int32Array(CW * CW); pxR = new Float32Array(CW * CW);
+  pxPerCell = CW / (2 * viewR);
+  base = document.createElement('canvas'); base.width = base.height = CW; bctx = base.getContext('2d');
   const s3 = Math.sqrt(3) / 2;
   for (let Y = 0; Y < CW; Y++) for (let X = 0; X < CW; X++) {
     const x = (X + 0.5 - CW / 2) / pxPerCell, y = (Y + 0.5 - CW / 2) / pxPerCell;
@@ -499,7 +508,11 @@ const pxPerCell = CW / (2 * viewR);
     pxR[o] = Math.sqrt(x * x + y * y);
     pxIdx[o] = (i >= 1 && j >= 1 && i < N - 1 && j < N - 1) ? j * N + i : -1;
   }
-})();
+  particles.length = 0;
+  chamberDirty = true;
+}
+let resizeTimer = 0;
+window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(setupChamber, 250); });
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 function clamp(x, a, b) { return x < a ? a : x > b ? b : x; }
@@ -525,6 +538,7 @@ const timeLUT = []; for (let i = 0; i <= 200; i++) timeLUT.push(timeColor(i / 20
 
 // particles: vapour molecules (visual only)
 const particles = [];
+setupChamber();
 function spawn(pt, anywhere) {
   const ang = Math.random() * Math.PI * 2;
   const r = anywhere ? Math.sqrt(Math.random()) * CW * 0.5 : CW * 0.5;
@@ -546,7 +560,8 @@ function updateParticles(dt) {
   }
 }
 
-function renderChamber() {
+function hazeColour() { const u = (state.T + 30) / 30; return [lerp(150, 200, u), lerp(170, 225, u), lerp(255, 240, u)]; }
+function renderBase() {
   const T = state.T, s = clamp(state.S / 0.3, 0, 1.2);
   const u = (T + 30) / 30; // 0 cold .. 1 warm
   // chamber tint: cold indigo -> milder steel blue near 0 C
@@ -554,7 +569,7 @@ function renderChamber() {
   const haze = [lerp(150, 200, u), lerp(170, 225, u), lerp(255, 240, u)];
   const hazeK = 0.55;
   const rho = sim.params.rho;
-  const Rfar = Math.min(sim.maxR, sim.radius + 20 + 0.5 * sim.radius);
+  const Rfar = Sim.farR(sim);
   const a = sim.a, c = sim.c, d = sim.d, tAt = sim.tAt, TAt = sim.TAt, nb = sim.nb;
   const view = state.view, tNow = Math.max(0.001, state.time);
   for (let o = 0, p4 = 0; o < pxIdx.length; o++, p4 += 4) {
@@ -585,17 +600,21 @@ function renderChamber() {
     }
     pix[p4] = R; pix[p4 + 1] = G; pix[p4 + 2] = B; pix[p4 + 3] = 255;
   }
-  cctx.putImageData(img, 0, 0);
-  // vapour particles
+  bctx.putImageData(img, 0, 0);
+  chamberDirty = false; hazeClock = 0;
+}
+function drawChamber() {
+  cctx.drawImage(base, 0, 0);
+  const haze = hazeColour(), sz = Math.max(1.6, CW / 420);
   cctx.fillStyle = `rgba(${haze[0] | 0},${haze[1] | 0},${haze[2] | 0},0.55)`;
-  for (const p of particles) cctx.fillRect(p.x - 1.2, p.y - 1.2, 2.4, 2.4);
+  for (const p of particles) cctx.fillRect(p.x - sz / 2, p.y - sz / 2, sz, sz);
 }
 
 // ---------- side view ----------
 const sideC = document.getElementById('side');
 const sctx = sideC.getContext('2d');
 let sideScale = null;
-function updateSide(dt, p, dR) {
+function updateSideWidth(dR) {
   const L = side.layers;
   const drive = Math.min(1.2, state.S / 0.3);
   const R = Math.max(1.2, sim.radius);
@@ -604,9 +623,12 @@ function updateSide(dt, p, dR) {
   if (dR > 0) for (let i = 0; i < L.length; i++) {
     const end = i >= L.length - 4;
     const w = Math.min(R, L[i].w + dR * (end ? 1.6 : wInt));
-    if (w > L[i].w) { L[i].w = w; L[i].tw = state.time; } // tw: when this slice last grew sideways
+    if (w > L[i].w) { L[i].w = w; L[i].tw = state.time; sideDirty = true; } // tw: when this slice last grew sideways
   }
-    // basal growth lengthens the c-axis
+}
+function updateSideBasal(dt, p) {
+  const L = side.layers;
+  // basal growth lengthens the c-axis
   if (side.halfH < MAXR * 1.05) {
     side.acc += SC * 2.2 * p.basal * state.speed * dt;
     while (side.acc >= side.dz) {
@@ -614,6 +636,7 @@ function updateSide(dt, p, dR) {
       const last = L[L.length - 1];
       L.push({ w: last.w, T: state.T, t: state.time, tw: state.time });
       side.halfH = L.length * side.dz;
+      sideDirty = true;
     }
   }
 }
@@ -624,6 +647,7 @@ function renderSide() {
   let maxW = 1; for (const l of L) if (l.w > maxW) maxW = l.w;
   const target = Math.min(9, (W - 40) / (2 * maxW), (H - 30) / (2 * side.halfH));
   sideScale = sideScale == null ? target : (target < sideScale ? target : sideScale + (target - sideScale) * 0.05);
+  sideDirty = Math.abs(target - sideScale) > 0.002; // keep redrawing only while the zoom eases
   const k = sideScale, cx = W / 2, cy = H / 2;
   // axis
   sctx.strokeStyle = 'rgba(124,196,255,.25)'; sctx.setLineDash([4, 4]);
@@ -803,7 +827,7 @@ window.addEventListener('resize', layoutDiagram);
 function setConditions(T, S) {
   state.T = clamp(T, T_MIN, T_MAX); state.S = clamp(S, S_MIN, S_MAX);
   sliderT.set(state.T); sliderS.set(state.S);
-  diagramDirty = true;
+  diagramDirty = true; condDirty = true;
 }
 function userSet(T, S) {
   stopAuto(); stopJourney();
@@ -897,8 +921,10 @@ function explain() {
 // ---------- readouts ----------
 const roT = document.getElementById('roT'), roS = document.getElementById('roS'), roRHi = document.getElementById('roRHi'), roRHw = document.getElementById('roRHw');
 const statusEl = document.getElementById('status');
+let lastRO = '';
 function readouts() {
   const T = state.T, S = state.S;
+  const key = T.toFixed(1) + S.toFixed(3); if (key === lastRO) return; lastRO = key;
   const ri = rhoV(pIce(T), T), rw = rhoV(pWater(T), T);
   roT.textContent = T.toFixed(1) + ' °C';
   roS.textContent = S.toFixed(3);
@@ -921,7 +947,7 @@ function seg(id, cb) {
 seg('speedSeg', v => state.speed = +v);
 const legend = document.getElementById('chamberLegend');
 seg('viewSeg', v => {
-  state.view = v;
+  state.view = v; chamberDirty = sideDirty = true;
   legend.style.display = v === 'ice' ? 'none' : 'block';
   if (v === 'temp') { document.getElementById('legTitle').textContent = 'Temperature when formed';
     document.getElementById('legBar').style.background = 'linear-gradient(90deg,' + TPAL.map(([t, c]) => `rgb(${c}) ${(-t / 30 * 100).toFixed(0)}%`).join(',') + ')';
@@ -931,9 +957,62 @@ seg('viewSeg', v => {
     document.getElementById('legA').textContent = 'first'; document.getElementById('legB').textContent = 'latest'; }
 });
 
+// ---------- growth model in a background thread ----------
+// The model runs in a Web Worker so drawing stays smooth. The worker only sends back the computed
+// 30-degree wedge (the rest follows by symmetry), which is copied in and unfolded here.
+let worker = null, busy = false, simGen = 0, reqN = 0, condDirty = true, needUnfold = false, lastBaseT = 0;
+function ensureUnfolded() { if (needUnfold) { Sim.unfold(sim); needUnfold = false; } }
+try {
+  const src = document.getElementById('simSrc').textContent + `
+    let S = null;
+    function count(R) { const cr = S.compR; let lo = 0, hi = cr.length; while (lo < hi) { const m = (lo + hi) >> 1; if (cr[m] <= R) lo = m + 1; else hi = m; } return lo; }
+    function snap(n, gen) {
+      const k = count(SnowSim.farR(S) + 3), comp = S.comp;
+      const a = new Uint8Array(k), nb = new Uint8Array(k), c = new Float32Array(k), d = new Float32Array(k), b = new Float32Array(k), tAt = new Float32Array(k), TAt = new Float32Array(k);
+      for (let m = 0; m < k; m++) { const i = comp[m]; a[m] = S.a[i]; nb[m] = S.nb[i]; c[m] = S.c[i]; d[m] = S.d[i]; b[m] = S.b[i]; tAt[m] = S.tAt[i]; TAt[m] = S.TAt[i]; }
+      postMessage({ type: 'snap', gen, n, k, radius: S.radius, steps: S.steps, a, nb, c, d, b, tAt, TAt }, [a.buffer, nb.buffer, c.buffer, d.buffer, b.buffer, tAt.buffer, TAt.buffer]);
+    }
+    let gen = 0;
+    onmessage = e => {
+      const m = e.data;
+      if (m.type === 'init') S = SnowSim.makeSim(m.N);
+      else if (m.type === 'reset') { gen = m.gen; S.params.rho = m.rho; SnowSim.reset(S, m.rho); }
+      else if (m.type === 'run') {
+        if (m.gen !== gen) { postMessage({ type: 'stale' }); return; }
+        Object.assign(S.params, m.params); S.time = m.time;
+        const t0 = performance.now(); let n = 0;
+        while (n < m.n && (n & 7 || performance.now() - t0 < m.budget)) { SnowSim.step(S, m.T); n++; }
+        snap(n, m.gen);
+      }
+    };`;
+  worker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+  worker.postMessage({ type: 'init', N });
+  worker.onmessage = e => {
+    const m = e.data; busy = false;
+    if (m.type !== 'snap' || m.gen !== simGen) return;
+    const comp = sim.comp, k = m.k;
+    for (let i = 0; i < k; i++) { const x = comp[i]; sim.a[x] = m.a[i]; sim.nb[x] = m.nb[i]; sim.c[x] = m.c[i]; sim.d[x] = m.d[i]; sim.b[x] = m.b[i]; sim.tAt[x] = m.tAt[i]; sim.TAt[x] = m.TAt[i]; }
+    sim.radius = m.radius; sim.steps = m.steps;
+    needUnfold = true;            // copy the wedge round to the full grid lazily, when something draws
+    afterSteps(m.n);
+    if (m.n < reqN) stepsAcc = 0; // the device can't keep up with the target: don't build a backlog
+  };
+  worker.onerror = () => { worker = null; busy = false; }; // fall back to the main thread
+} catch (err) { worker = null; }
+
+function afterSteps(n) {
+  const dR = sim.radius - Rprev; Rprev = sim.radius;
+  gNum = gNum * 0.985 + dR; gDen = gDen * 0.985 + n;
+  if (n) { updateSideWidth(dR); chamberDirty = true; }
+  if (sim.radius >= MAXR * 0.93) state.done = true;
+}
+
 // ---------- main loop ----------
 let last = performance.now();
 let trailClock = 0;
+const statusText = () => state.done ? '❄ Fully grown. Press “New crystal” to start again'
+  : !state.running ? 'Paused' : `Growing · ${(state.time).toFixed(0)} s · diameter ≈ ${(2 * sim.radius * 0.025 / SC).toFixed(2)} mm`;
+let lastStatus = '';
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   // drive conditions automatically
@@ -952,29 +1031,40 @@ function frame(now) {
     const target = SC * state.speed * (0.35 + 4.5 * drive) * p.inPlane;
     const g = clamp(gNum / gDen, 2e-5, 0.3);
     stepsAcc += target * dt / g;
-    const want = Math.floor(stepsAcc);
-    sim.time = state.time;
-    const t0 = performance.now();
-    let n = 0;
-    while (n < want && (n & 7 || performance.now() - t0 < 11)) { Sim.step(sim, state.T); n++; }
-    stepsAcc = n < want ? 0 : stepsAcc - n;
-    if (n) Sim.unfold(sim);
-    const dR = sim.radius - Rprev; Rprev = sim.radius;
-    gNum = gNum * 0.985 + dR; gDen = gDen * 0.985 + n;
+    if (worker) {
+      if (!busy) {
+        const n = Math.floor(stepsAcc);
+        if (n > 0) { reqN = n; stepsAcc -= n; busy = true;
+          worker.postMessage({ type: 'run', n, T: state.T, params: p, time: state.time, budget: 45, gen: simGen }); }
+      }
+    } else {
+      const want = Math.floor(stepsAcc);
+      sim.time = state.time;
+      const t0 = performance.now();
+      let n = 0;
+      while (n < want && (n & 7 || performance.now() - t0 < 11)) { Sim.step(sim, state.T); n++; }
+      stepsAcc = n < want ? 0 : stepsAcc - n;
+      if (n) Sim.unfold(sim);
+      afterSteps(n);
+    }
     state.time += dt * state.speed;
-    updateSide(dt, p, dR);
+    updateSideBasal(dt, p);
     trailClock += dt;
     if (trailClock > 0.15) { trailClock = 0; const L = state.trail[state.trail.length - 1];
       if (!L || Math.abs(L.T - state.T) > 0.05 || Math.abs(L.S - state.S) > 0.001) { state.trail.push({ T: state.T, S: state.S }); if (state.trail.length > 600) state.trail.shift(); diagramDirty = true; } }
-    if (sim.radius >= MAXR * 0.93) { state.done = true; }
-    statusEl.textContent = state.done ? '❄ Fully grown. Press “New crystal” to start again'
-      : `Growing · ${(state.time).toFixed(0)} s · diameter ≈ ${(2 * sim.radius * 0.025 / SC).toFixed(2)} mm`;
-  } else if (!state.running && !state.done) statusEl.textContent = 'Paused';
-  updateParticles(dt);
-  renderChamber();
-  renderSide();
-  if (diagramDirty) drawDiagram();
-  readouts(); explain();
+  }
+  // drawing: only for the Grow tab, and only what changed
+  if (!state.tab || state.tab === 'grow') {
+    hazeClock += dt;
+    if (condDirty && hazeClock > 0.1) { chamberDirty = true; condDirty = false; }
+    if (chamberDirty && now - lastBaseT > 80) { ensureUnfolded(); renderBase(); lastBaseT = now; }
+    updateParticles(dt);
+    drawChamber();
+    if (sideDirty) renderSide();
+    if (diagramDirty) drawDiagram();
+    readouts(); explain();
+    const st = statusText(); if (st !== lastStatus) { statusEl.textContent = st; lastStatus = st; }
+  }
   requestAnimationFrame(frame);
 }
 
@@ -1070,6 +1160,7 @@ function dpClosed(loop, eps) {
 const area = L => { let s = 0; for (let i = 0; i < L.length; i++) { const p = L[i], q = L[(i + 1) % L.length]; s += p[0] * q[1] - q[0] * p[1]; } return s / 2; };
 
 function buildPaper() {
+  ensureUnfolded();
   const M = 260, SZ = 2 * M + 1;
   const Rc = Math.max(3, sim.radius);
   const cpp = Rc * 1.06 / M;                       // crystal cells per raster px
@@ -1194,10 +1285,10 @@ document.querySelectorAll('.tab').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === b));
   const tab = b.dataset.tab;
   for (const id of ['grow', 'three', 'paper']) document.getElementById(id + 'Tab').classList.toggle('hidden', id !== tab);
-  state.tab = tab;
+  state.tab = tab; ensureUnfolded();
   if (tab === 'paper') updatePaper();
   else if (tab === 'three') { if (window.Snow3D) window.Snow3D.show(); }
-  else layoutDiagram();
+  else { layoutDiagram(); setupChamber(); chamberDirty = sideDirty = diagramDirty = true; }
   if (tab !== 'three' && window.Snow3D) window.Snow3D.hide();
 });
 seg('detailSeg', v => { paper.feature = +v; updatePaper(); });
@@ -1223,7 +1314,7 @@ drawDiagramBase();
 layoutDiagram();
 setConditions(state.T, state.S);
 requestAnimationFrame(frame);
-window.__snow = { state, sim, side, paper, updatePaper, attachedAt, traceLoops, dpClosed, area, tColor, timeColor, MAXR, SC, Sim, N };
+window.__snow = { state, sim, side, paper, updatePaper, ensureUnfolded, attachedAt, traceLoops, dpClosed, area, tColor, timeColor, MAXR, SC, Sim, N };
 })();
 </script>
 <script type="importmap">{ "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }</script>
