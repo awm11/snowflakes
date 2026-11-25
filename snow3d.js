@@ -13,12 +13,19 @@ let renderer, scene, camera, controls, group, visible = false, built = false, la
 const opts = { colour: 'ice', thick: 1, spin: true };
 
 function init() {
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.85;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   scene = new THREE.Scene();
+  { // soft blue backdrop, like a photomicrograph – transmission refracts this through the ice
+    const c = document.createElement('canvas'); c.width = 16; c.height = 512;
+    const g = c.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 512);
+    gr.addColorStop(0, '#9fb3e8'); gr.addColorStop(0.55, '#5f78c8'); gr.addColorStop(1, '#2c3a7a');
+    g.fillStyle = gr; g.fillRect(0, 0, 16, 512);
+    scene.background = new THREE.CanvasTexture(c); scene.background.colorSpace = THREE.SRGBColorSpace;
+  }
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
   camera = new THREE.PerspectiveCamera(35, 1, 1, 20000);
@@ -64,7 +71,7 @@ function crystalCanvases(G, Rv) {
       h = Math.max(0, Math.min(1, (sim.c[k] - 0.6) / 1.6));
       if (opts.colour === 'temp') c = tColor(sim.TAt[k]);
       else if (opts.colour === 'time') c = timeColor(Math.min(1, sim.tAt[k] / tNow));
-      else { const v = 0.45 + 0.55 * h; c = [95 * v + 60, 160 * v + 70, 230 * v + 25]; }
+      else { c = [255, 255, 255]; }
     }
     ci.data[o] = c[0]; ci.data[o + 1] = c[1]; ci.data[o + 2] = c[2]; ci.data[o + 3] = 255;
     const g = on ? 60 + 195 * h : 0;
@@ -107,9 +114,10 @@ function disposeGroup() {
 }
 
 function iceMaterial(extra) {
+  // clear, refractive ice (refractive index 1.31)
   return new THREE.MeshPhysicalMaterial(Object.assign({
-    color: 0xdcecff, roughness: 0.22, metalness: 0, transparent: true, opacity: 0.86, ior: 1.31,
-    clearcoat: 0.9, clearcoatRoughness: 0.06, envMapIntensity: 0.9, side: THREE.DoubleSide, specularIntensity: 1,
+    color: 0xffffff, roughness: 0.05, metalness: 0, transmission: 1, thickness: 4, ior: 1.31,
+    clearcoat: 1, clearcoatRoughness: 0.03, specularIntensity: 1, envMapIntensity: 1.2, side: THREE.DoubleSide,
   }, extra));
 }
 
