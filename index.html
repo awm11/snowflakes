@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
 <title>Grow a Snowflake | Alex Moore Physics</title>
 <meta name="description" content="Interactive snowflake growth simulation: steer temperature and humidity on the Nakaya diagram and watch an ice crystal grow.">
 <style>
@@ -108,6 +109,16 @@
   .inspired:hover { background: rgba(255,255,255,.12); border-color: #7cc4ff; transform: translateY(-1px); }
   .inspired .play { width: 30px; height: 30px; border-radius: 50%; background: #e62117; color: #fff; display: grid; place-items: center; font-size: 12px; padding-left: 2px; }
   .inspired small { display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); line-height: 1.2; }
+
+  #t3dWrap { position: relative; width: 100%; height: min(72vh, 720px); border-radius: 12px; overflow: hidden; background: #2c3a7a; }
+  #t3dCanvas { width: 100%; height: 100%; display: block; touch-action: none; }
+  #t3dStatus { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); font-size: 13px; color: #fff;
+    background: rgba(5,10,25,.55); padding: 3px 10px; border-radius: 20px; white-space: nowrap; pointer-events: none; }
+  #t3dTopWrap { width: 100%; max-width: 480px; margin: 0 auto; aspect-ratio: 1; border-radius: 50%; overflow: hidden;
+    box-shadow: 0 0 0 5px #0d1631, 0 0 0 6px #34467d; }
+  #t3dTop { width: 100%; height: 100%; display: block; }
+  .diaGrid { position: relative; width: 100%; user-select: none; touch-action: none; }
+  .diaGrid canvas { width: 100%; display: block; cursor: crosshair; touch-action: none; }
 </style>
 </head>
 <body>
@@ -120,6 +131,7 @@
 <nav class="tabs" role="tablist">
   <button class="tab on" data-tab="grow" role="tab">❄ Grow</button>
   <button class="tab" data-tab="three" role="tab">◇ 3D view</button>
+  <button class="tab" data-tab="true3d" role="tab">✦ True 3D</button>
   <button class="tab" data-tab="paper" role="tab">✂ Paper snowflake</button>
 </nav>
 <main id="growTab">
@@ -211,6 +223,57 @@
       </div>
     </div>
     <p class="lbl" id="t3Note" style="margin:10px 0 0"></p>
+  </section>
+</main>
+
+<main id="true3dTab" class="hidden">
+  <section class="card">
+    <h2>True 3D growth · drag to rotate, scroll to zoom</h2>
+    <div id="t3dWrap"><canvas id="t3dCanvas"></canvas><div id="t3dStatus">Starting…</div></div>
+    <div class="row" style="margin-top:12px; justify-content:space-between">
+      <div class="row">
+        <button class="btn primary" id="t3dPlay">⏸ Pause</button>
+        <button class="btn" id="t3dReset">↺ New crystal</button>
+        <button class="btn on" id="t3dSpin">⟳ Auto-rotate</button>
+        <button class="btn" id="t3dView">⌖ Reset view</button>
+      </div>
+      <div class="row"><span class="lbl">Colour</span>
+        <div class="seg" id="t3dColour"><button data-v="ice" class="on">Ice</button><button data-v="temp">Temperature when formed</button></div>
+      </div>
+    </div>
+    <p class="lbl" id="t3dNote" style="margin:10px 0 0">This crystal grows in full 3D, so thickness, ridges, hollow columns and needles come out of the model itself. It's slower than the Grow tab: a full crystal takes a minute or two.</p>
+  </section>
+  <section class="card">
+    <h2>Top view · orthographic, same crystal</h2>
+    <div id="t3dTopWrap"><canvas id="t3dTop" width="480" height="480"></canvas></div>
+    <h2 style="margin-top:14px">Conditions</h2>
+    <div id="t3dDiaGrid" class="diaGrid">
+      <canvas id="t3dDia" width="560" height="430" aria-label="Morphology diagram for the 3D crystal"></canvas>
+      <div class="slider" id="t3dSS" role="slider" tabindex="0" aria-label="Humidity" aria-orientation="vertical" style="--c: var(--accent2)"><div class="track"></div><div class="fill"></div><div class="thumb"></div><div class="bubble"></div></div>
+      <div class="slider" id="t3dST" role="slider" tabindex="0" aria-label="Temperature" aria-orientation="horizontal" style="--c: var(--accent)"><div class="track"></div><div class="fill"></div><div class="thumb"></div><div class="bubble"></div></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn" id="t3dAuto">✦ Auto‑drift</button>
+      <span class="lbl" id="t3dJourney"></span>
+    </div>
+    <div class="presets row">
+      <span class="lbl">Try:</span>
+      <button class="btn" data-p3="thin">Thin plate</button>
+      <button class="btn" data-p3="thick">Thick plate</button>
+      <button class="btn" data-p3="sector">Sectored plate</button>
+      <button class="btn" data-p3="stellar">Stellar dendrite</button>
+      <button class="btn" data-p3="column">Solid column</button>
+      <button class="btn" data-p3="hollow">Hollow column</button>
+      <button class="btn" data-p3="needle">Needle</button>
+      <button class="btn" data-p3="capped">Capped column ▶</button>
+      <button class="btn" data-p3="tipped">Plate‑tipped arms ▶</button>
+    </div>
+    <details>
+      <summary>How the 3D model works</summary>
+      <p>This tab grows the crystal on a 3D lattice of stacked hexagonal layers. It's a version of Gravner and Griffeath's three‑dimensional snow‑crystal model (Phys. Rev. E 79, 011601, 2009). Each cell has six neighbours in its layer and one above and one below. Vapour diffuses through the lattice and is held at a fixed density far from the crystal. Cells freeze onto the crystal once enough mass builds up next to them.</p>
+      <p>The key ingredient is that the top and bottom (basal) faces and the six side (prism) faces have different attachment thresholds, which depend on temperature. In plate weather, starting a new layer on a basal face is hard, so the crystal spreads sideways into a thin plate. In column weather, side growth is hard, so it grows along the c‑axis. Humidity controls how strongly the crystal is limited by diffusion, which is what makes branches, hollow column ends and needles.</p>
+      <p>Only one 30° wedge of the upper half is computed, using the crystal's 12‑fold and top/bottom symmetry. The lattice is about 300 cells across, roughly 15 µm per cell for a 4.5 mm flake. The parameter mapping is tuned by hand to give the right shapes in the right parts of the diagram, so it's qualitative, not a calibrated simulation. The top view is an orthographic projection of the same 3D crystal, shaded by its thickness.</p>
+    </details>
   </section>
 </main>
 <main id="paperTab" class="hidden">
@@ -1288,7 +1351,8 @@ stepSVGs();
 document.querySelectorAll('.tab').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === b));
   const tab = b.dataset.tab;
-  for (const id of ['grow', 'three', 'paper']) document.getElementById(id + 'Tab').classList.toggle('hidden', id !== tab);
+  for (const id of ['grow', 'three', 'true3d', 'paper']) document.getElementById(id + 'Tab').classList.toggle('hidden', id !== tab);
+  if (window.True3D) { if (tab === 'true3d') window.True3D.show(); else window.True3D.hide(); }
   state.tab = tab; ensureUnfolded();
   if (tab === 'paper') updatePaper();
   else if (tab === 'three') { if (window.Snow3D) window.Snow3D.show(); }
@@ -1318,10 +1382,209 @@ drawDiagramBase();
 layoutDiagram();
 setConditions(state.T, state.S);
 requestAnimationFrame(frame);
-window.__snow = { state, sim, side, paper, updatePaper, ensureUnfolded, attachedAt, traceLoops, dpClosed, area, tColor, timeColor, MAXR, SC, Sim, N };
+window.__snow = { state, sim, side, paper, updatePaper, ensureUnfolded, attachedAt, traceLoops, dpClosed, area, tColor, timeColor, MAXR, SC, Sim, N,
+  xOf, yOf, TofX, SofY, makeSlider, waterExcess, rhoV, pIce, pWater, clamp, lerp, getDiagramBase: () => { if (!diaBase) drawDiagramBase(); return diaBase; } };
 })();
 </script>
 <script type="importmap">{ "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }</script>
+<script id="sim3dSrc">
+// 3D snow-crystal growth model (after Gravner & Griffeath, Phys. Rev. E 79, 011601, 2009).
+// Lattice: stacked hexagonal layers. Each cell has 6 in-plane neighbours and 2 vertical ones.
+// Symmetry: only a 30-degree in-plane wedge (12-fold) and the upper half (top/bottom mirror)
+// are stored; neighbour tables map every neighbour straight onto its stored equivalent.
+(function (root) {
+  function makeSim3(Rmax, Zmax) {
+    const N = 2 * (Rmax + 4) + 1, c0 = (N - 1) >> 1, s3 = Math.sqrt(3) / 2;
+    // canonical (wedge) representative of an axial cell
+    const canonOf = (q, r) => {
+      if (q === 0 && r === 0) return [0, 0];
+      let n = 0;
+      while (!(q >= 1 && r >= 0)) { const t = q; q = -r; r = t + r; if (++n > 6) throw new Error('sector'); }
+      if (r > q) { const t = q; q = r; r = t; }
+      return [q, r];
+    };
+    const rrOf = (q, r) => { const x = q + r / 2, y = r * s3; return Math.sqrt(x * x + y * y); };
+    // stored in-plane cells: wedge cells with radius <= Rmax + 2
+    const loc = new Map(); const cells = [];
+    for (let q = 0; q <= Rmax + 3; q++) for (let r = 0; r <= q; r++) {
+      if (q === 0 && r > 0) continue;
+      if (!(q === 0 && r === 0) && q < 1) continue;
+      const rr = rrOf(q, r); if (rr > Rmax + 2.5) continue;
+      cells.push({ q, r, rr });
+    }
+    cells.sort((A, B) => A.rr - B.rr);
+    cells.forEach((c, i) => loc.set(c.q * 4096 + c.r, i));
+    const M2 = cells.length;
+    const rr = new Float32Array(M2), nbr = new Int32Array(M2 * 6);
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
+    for (let i = 0; i < M2; i++) {
+      const { q, r } = cells[i]; rr[i] = cells[i].rr;
+      for (let j = 0; j < 6; j++) {
+        const [cq, cr] = canonOf(q + dirs[j][0], r + dirs[j][1]);
+        const k = loc.get(cq * 4096 + cr);
+        nbr[i * 6 + j] = k === undefined ? -1 : k; // -1: beyond the stored region (always far field)
+      }
+    }
+    // full-grid lookup: axial cell (i,j) in an N x N grid -> stored index (or -1)
+    const local = new Int32Array(N * N).fill(-1);
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const q = i - c0, r = j - c0; if (rrOf(q, r) > Rmax + 2) continue;
+      const [cq, cr] = canonOf(q, r); const k = loc.get(cq * 4096 + cr); if (k !== undefined) local[j * N + i] = k;
+    }
+    const size = M2 * Zmax;
+    const S = {
+      Rmax, Zmax, M2, N, c0, rr, nbr, local,
+      a: new Uint8Array(size), b: new Float32Array(size), c: new Float32Array(size), d: new Float32Array(size),
+      d2: new Float32Array(size), TA: new Uint8Array(size), nT: new Uint8Array(size), nV: new Uint8Array(size),
+      bnd: new Int32Array(size), att: new Int32Array(size),
+      steps: 0, Rc: 0.5, Hc: 0, nIn: 0, Zn: 0,
+      params: { rho: 0.5, betaP: 1.6, betaB: 4, betaBP: 1.6, alpha: 0.25, theta: 0.025, kappa: 0.003, mu: 0.02, gamma: 0.0003, far: 1 },
+    };
+    reset3(S, 0.5);
+    return S;
+  }
+  function reset3(S, rho) {
+    S.a.fill(0); S.b.fill(0); S.c.fill(0); S.d.fill(rho); S.TA.fill(0);
+    S.a[0] = 1; S.c[0] = 1; S.d[0] = 0;
+    S.steps = 0; S.Rc = 0.5; S.Hc = 0; S.nIn = 0; S.Zn = 0;
+  }
+  function countR(S, R) { const rr = S.rr; let lo = 0, hi = rr.length; while (lo < hi) { const m = (lo + hi) >> 1; if (rr[m] <= R) lo = m + 1; else hi = m; } return lo; }
+  // distance to the held far-field vapour, in-plane and vertically (cells)
+  function farDims(S) {
+    const f = S.params.far, ext = Math.max(S.Rc, S.Hc);
+    const m = 6 + (8 + (S.params.mk || 0.3) * ext) * f;
+    // ellipsoidal envelope; each semi-axis also grows with the other dimension so that the middle of a
+    // long column (or the centre of a broad plate) is shaded, as it would be in open air
+    return [Math.min(S.Rmax, S.Rc + m + tune.cross * S.Hc), Math.min(S.Zmax - 3, S.Hc + m + tune.crossZ * S.Rc)];
+  }
+  function step3(S, T) {
+    const { M2, a, b, c, d, d2, rr, nbr, nT, nV } = S;
+    const p = S.params, rho = p.rho;
+    const [Rfar, Zfar] = farDims(S);
+    const nIn = countR(S, Rfar + 2.5), Zn = Math.min(S.Zmax - 1, Math.ceil(Zfar) + 2);
+    if (nIn > S.nIn || Zn > S.Zn) { // domain grew: newly included cells start at the far-field value
+      for (let z = 0; z < Zn; z++) { const base = z * M2, m0 = z < S.Zn ? S.nIn : 0; for (let m = m0; m < nIn; m++) if (!a[base + m]) d[base + m] = rho; }
+      S.nIn = Math.max(S.nIn, nIn); S.Zn = Math.max(S.Zn, Zn);
+    }
+    const NI = S.nIn, NZ = S.Zn;
+    // 1. diffusion: 2/3 in-plane average, 1/3 vertical average; ice reflects
+    // weak vertical mixing only helps thin plates branch; once the crystal is thick (a column) use full mixing
+    const vThin = p.vw == null ? 1 / 3 : p.vw, fz = Math.min(1, Math.max(0, (S.Hc - 3) / 8));
+    const iR2 = 1 / (Rfar * Rfar), iZ2 = 1 / (Zfar * Zfar), vw = vThin + (1 / 3 - vThin) * fz, hw = 1 - vw;
+    for (let z = 0; z < NZ; z++) {
+      const base = z * M2, zz = z * z * iZ2;
+      const up = z + 1 < S.Zmax ? M2 : 0, dn = z === 0 ? M2 : -M2;  // z = 0: mirror (below = above)
+      for (let m = 0; m < NI; m++) {
+        const i = base + m;
+        if (a[i]) continue;
+        if (zz + rr[m] * rr[m] * iR2 > 1) { d2[i] = rho; continue; }
+        const di = d[i];
+        let sh = di; const o = m * 6;
+        for (let j = 0; j < 6; j++) { const n = nbr[o + j]; if (n < 0) { sh += rho; continue; } const k = base + n; sh += a[k] ? di : d[k]; }
+        const ku = i + up, kd = i + dn;
+        const sv = di + (a[ku] ? di : d[ku]) + (a[kd] ? di : d[kd]);
+        d2[i] = hw * (sh / 7) + vw * (sv / 3);
+      }
+    }
+    // 2. copy back + freezing at boundary cells
+    const kap = p.kappa, bnd = S.bnd;
+    let nB = 0;
+    for (let z = 0; z < NZ; z++) {
+      const base = z * M2, up = M2, dn = z === 0 ? M2 : -M2;
+      for (let m = 0; m < NI; m++) {
+        const i = base + m;
+        if (a[i]) continue;
+        d[i] = d2[i];
+        let t = 0; const o = m * 6;
+        for (let j = 0; j < 6; j++) { const n = nbr[o + j]; if (n >= 0) t += a[base + n]; }
+        const v = a[i + up] + a[i + dn];
+        nT[i] = t; nV[i] = v;
+        if (t + v === 0) continue;
+        bnd[nB++] = i;
+        const di = d[i]; b[i] += (1 - kap) * di; c[i] += kap * di; d[i] = 0;
+      }
+    }
+    // 3. attachment, decided synchronously. Prism (side) and basal (top/bottom) faces have separate
+    //    thresholds: this anisotropy is what makes plates vs columns.
+    const { betaP, betaB, betaBP, alpha, theta } = p, att = S.att;
+    let nA = 0;
+    for (let q = 0; q < nB; q++) {
+      const i = bnd[q], t = nT[i], v = nV[i], bi = b[i];
+      let ok;
+      if (t >= 4 || (v === 2 && t >= 1)) ok = true;
+      else if (t === 3) {
+        const k3 = p.k3 || 1;
+        if (v >= 1) ok = bi >= 1;
+        else if (bi >= k3) ok = true;
+        else if (bi >= alpha) {
+          const m = i % M2, base = i - m, o = m * 6; let sd = d[i];
+          for (let j = 0; j < 6; j++) { const n = nbr[o + j]; sd += n < 0 ? rho : d[base + n]; }
+          ok = sd < theta;
+        } else ok = false;
+      }
+      else if (t >= 1) ok = bi >= (v >= 1 ? betaBP : betaP);
+      else ok = bi >= betaB; // only vertical neighbours: a new layer on a basal face
+      if (ok) att[nA++] = i;
+    }
+    const TA = Math.max(0, Math.min(255, Math.round(-T * 8)));
+    for (let q = 0; q < nA; q++) {
+      const i = att[q];
+      a[i] = 1; c[i] += b[i]; b[i] = 0; S.TA[i] = TA;
+      const m = i % M2, z = (i - m) / M2;
+      if (rr[m] > S.Rc) S.Rc = rr[m];
+      if (z > S.Hc) S.Hc = z;
+    }
+    // 4. melting / sublimation of the boundary layer
+    const mu = p.mu, gam = p.gamma;
+    for (let q = 0; q < nB; q++) {
+      const i = bnd[q]; if (a[i]) continue;
+      const db = mu * b[i], dc = gam * c[i]; b[i] -= db; c[i] -= dc; d[i] += db + dc;
+    }
+    S.steps++;
+  }
+
+  // ---- temperature / humidity -> parameters ----
+  function interp(tab, x) {
+    if (x >= tab[0][0]) return tab[0][1];
+    for (let i = 1; i < tab.length; i++) if (x >= tab[i][0]) {
+      const [x0, y0] = tab[i - 1], [x1, y1] = tab[i]; const u = (x - x0) / (x1 - x0); const w = u * u * (3 - 2 * u);
+      return y0 + (y1 - y0) * w;
+    }
+    return tab[tab.length - 1][1];
+  }
+  const PLATE = [[0, 0.45], [-1.5, 0.6], [-3, 0.35], [-4, 0.12], [-5, 0.03], [-6.5, 0.08], [-8.5, 0.2], [-10, 0.45], [-12, 0.85], [-14, 1.0], [-16, 1.0], [-18, 0.85], [-21, 0.55], [-24, 0.4], [-30, 0.35]];
+  const tune = { mk: 1.3, vw: 0.03, k3: 1, A: 4, P0: 0.3, colK: 1.5, Bpen: 1, bpk: 0.5, cross: 0.7, crossZ: 0.15, f0: 0.25, fw: 0.5, bk: 1.4, r0: 0.05, r1: 0.25 };
+  function mapParams3(T, S) {
+    const P = interp(PLATE, T), drive = Math.min(1.2, Math.max(0, S / 0.3));
+    // humidity drives branching on whichever faces are growing fast (as in the 2D model)
+    const plateDrive = Math.min(1, P * drive * tune.bk), colDrive = Math.min(1, (1 - P) * drive * tune.bk);
+    // temperature sets the anisotropy: plate weather makes basal (top/bottom) layers hard to start,
+    // column weather makes prism (side) growth hard
+    // A thin vertical tip collects vapour from two directions while sideways growth shares it six ways,
+    // so the lattice favours columns; the plate/column balance point is shifted (P0) to compensate.
+    const ani = (P - tune.P0) / (1 - tune.P0);           // +1 plate weather ... negative column weather
+    const betaP = 1.25 + 2.3 * (1 - plateDrive) + tune.A * Math.max(0, -ani) * tune.colK;
+    // in column weather basal growth is attachment-limited at low humidity (stubby solid columns) and
+    // only runs away into needles when humidity is high
+    const betaB = 1.25 + 2.3 * (1 - colDrive) + tune.A * Math.max(0, ani) + tune.Bpen * Math.min(1, Math.max(0, (1 - colDrive) / 0.3)) * (1 - P);
+    const far = Math.min(1, Math.max(0, (Math.max(plateDrive, colDrive) - tune.f0) / tune.fw));
+    // In branching plate weather the vapour field must stay depleted over long distances for arms to form:
+    // a lower supply, a more distant reservoir and weaker vertical mixing near the thin plate. Elsewhere
+    // the standard settings apply. (A lattice model needs this kind of tuning; it is qualitative.)
+    const w = plateDrive * plateDrive;
+    const lerp = (x, y) => x + (y - x) * w;
+    return { vw: lerp(1 / 3, tune.vw), mk: lerp(0.3, tune.mk), k3: tune.k3,
+      rho: lerp(0.24 + 0.34 * drive, tune.r0 + tune.r1 * drive), betaP, betaB, // step sites (side + vertical contact): easy in column weather (whole new rows, no fins); in plate
+      // weather as hard as a bare side face, so thin edges outgrow thick faces (edge sharpening)
+      betaBP: Math.max(1, tune.bpk * Math.min(betaP, betaB)) * (1 - plateDrive) + betaP * plateDrive,
+      alpha: 0.25, theta: 0.025, kappa: 0.003, mu: 0.02, gamma: 0.0003, far };
+  }
+  const api = { makeSim3, reset3, step3, mapParams3, farDims, countR, tune, plateFactor: T => interp(PLATE, T) };
+  if (typeof module !== 'undefined') module.exports = api; else root.Snow3Sim = api;
+})(this);
+
+</script>
 <script type="module" src="./snow3d.js"></script>
+<script type="module" src="./true3d.js"></script>
 </body>
 </html>
