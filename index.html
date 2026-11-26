@@ -706,8 +706,11 @@ function updateSideWidth(dR) {
   // the leading plate keeps pace with the flake; the shaded one falls behind and stalls
   const gain = 1.6 - 0.6 * comp;
   const grow = (L, f) => {
+    const We = endWidth(L);
     for (let i = 0; i < L.length; i++) {
-      const end = i >= L.length - 4;
+      // a slice counts as part of the end plate if it's one of the end slices or already nearly as wide;
+      // only genuinely narrow column cores are shaded (so a plain plate stays widest in the middle)
+      const end = i >= L.length - 4 || L[i].w >= 0.8 * We;
       const w = Math.min(R, L[i].w + dR * (end ? gain * f : wInt));
       if (w > L[i].w) { L[i].w = w; L[i].tw = state.time; sideDirty = true; } // tw: when this slice last grew sideways
     }
@@ -752,7 +755,8 @@ function renderSide() {
       let b = a; while (b + 1 < n && Math.abs(L[b + 1].w - L[a].w) <= Math.max(1.5, 0.06 * L[a].w)) b++;
       const w = L[a].w, len = b - a + 1;
       const rO = (b + 1 >= n || L[b + 1].w < 0.9 * w), rI = (a > 0 && L[a - 1].w < 0.9 * w);
-      const rOut = rO ? Math.min(6, rI ? len / 2 : len) : 0, rIn = rI ? Math.min(6, rO ? len / 2 : len) : 0;
+      const cap = w > 2 * len * side.dz ? Infinity : 2;   // plates: curve spans the whole thickness; columns: softened corners
+      const rOut = rO ? Math.min(cap, rI ? len / 2 : len) : 0, rIn = rI ? Math.min(cap, rO ? len / 2 : len) : 0;
       for (let i = a; i <= b; i++) {
         let e = 0;
         const dOut = b + 0.5 - i, dIn = i - a + 0.5;

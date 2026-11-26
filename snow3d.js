@@ -146,6 +146,7 @@ function shapesFromMask(mask, G, Rv, rad) {
   });
 }
 
+const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
 // approximate distance (pixels) from each inside pixel to the outside
 function chamfer(mask, G) {
   const D = new Float32Array(G * G), B = Math.SQRT2, BIG = 1e9;
@@ -230,10 +231,13 @@ function build() {
       const outer = groups[gi + 1], inner = groups[gi - 1];
       const roundOut = !outer || outer.w < 0.9 * g.w;          // outward face exposed
       const roundIn = gi > 0 && inner.w < 0.9 * g.w;            // inward face exposed (e.g. a plate on a column)
-      let rOut = roundOut ? Math.min(maxR, roundIn ? h / 2 : h) : 0;
-      let rIn = roundIn ? Math.min(maxR, roundOut ? h / 2 : h) : 0;
-      // slices: [start, end, erosion in cells]
-      const slices = [], n = 5;
+      // plate-like slabs (much wider than thick) get a fully rounded edge, the curve spanning the whole
+      // thickness; column-like slabs only have their corners softened
+      const plateLike = g.w > 2 * h, cap = plateLike ? Infinity : Math.min(maxR, 2 * dz * exag);
+      let rOut = roundOut ? Math.min(cap, roundIn ? h / 2 : h) : 0;
+      let rIn = roundIn ? Math.min(cap, roundOut ? h / 2 : h) : 0;
+      // slices: [start, end, erosion in cells]; enough slices for a smooth curve
+      const slices = [], n = Math.round(clamp(Math.max(rOut, rIn) * pxPerCell / 1.5, 5, 14));
       const core0 = z0 + rIn, core1 = z1 - rOut;
       for (let k = 0; k < n && rIn > 0; k++) { const v = 1 - (k + 0.5) / n; slices.push([z0 + rIn * k / n, z0 + rIn * (k + 1) / n, rIn * (1 - Math.sqrt(1 - v * v))]); }
       if (core1 > core0 + 1e-6) slices.push([core0, core1, 0]);
