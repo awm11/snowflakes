@@ -185,7 +185,7 @@ function build() {
   disposeGroup();
   const { sim, side, state, tColor, timeColor } = S;
   const R = Math.max(3, sim.radius), Rv = R * 1.03;
-  const G = 768;
+  const G = 1100;
   const { col, bmp, mask, tA, rP } = crystalCanvases(G, Rv);
   group = new THREE.Group();
   const mapTex = new THREE.CanvasTexture(col); mapTex.colorSpace = THREE.SRGBColorSpace;

@@ -481,7 +481,7 @@
   const PLATE = [[0, 0.45], [-1.5, 0.6], [-3, 0.35], [-4, 0.12], [-5, 0.03], [-6.5, 0.08], [-8.5, 0.2], [-10, 0.45], [-12, 0.85], [-14, 1.0], [-16, 1.0], [-18, 0.85], [-21, 0.55], [-24, 0.4], [-30, 0.35]];
   // basal (c-axis) growth tendency: 1 = long columns/needles
   const COLUMN = [[0, 0.15], [-2, 0.1], [-3, 0.45], [-4.5, 1.0], [-6, 0.95], [-8, 0.6], [-10, 0.2], [-12, 0.05], [-16, 0.03], [-19, 0.1], [-22, 0.35], [-25, 0.45], [-30, 0.45]];
-  api.tune = { bk: 1.4, f0: 0.25, fw: 0.5 };
+  api.tune = { bk: 1.4, f0: 0.45, fw: 0.35 };
   api.plateFactor = T => interp(PLATE, T);
   api.columnFactor = T => interp(COLUMN, T);
   // T in degC, S = excess vapour density over ice in g/m^3
@@ -505,7 +505,7 @@
 (() => {
 'use strict';
 const Sim = window.SnowSim;
-const N = 601;
+const N = 1201;
 const sim = Sim.makeSim(N);
 const MAXR = sim.maxR;
 const SC = MAXR / 97; // grid scale relative to the original 201-cell grid
@@ -560,7 +560,7 @@ let CW, img, pix, pxIdx, pxR, pxPerCell, base, bctx;
 const viewR = MAXR * 1.04;
 let chamberDirty = true, sideDirty = true, hazeClock = 0;
 function setupChamber() {
-  const want = clamp(Math.round(chamber.clientWidth * Math.min(2, window.devicePixelRatio || 1)), 320, 1000);
+  const want = clamp(Math.round(chamber.clientWidth * Math.min(2, window.devicePixelRatio || 1)), 320, 1400);
   if (CW && Math.abs(want - CW) < CW * 0.1) return;
   CW = want; chamber.width = chamber.height = CW;
   img = cctx.createImageData(CW, CW); pix = img.data;
