@@ -146,6 +146,24 @@ function shapesFromMask(mask, G, Rv, rad) {
   });
 }
 
+// approximate distance (pixels) from each inside pixel to the outside
+function chamfer(mask, G) {
+  const D = new Float32Array(G * G), B = Math.SQRT2, BIG = 1e9;
+  for (let i = 0; i < D.length; i++) D[i] = mask[i] ? BIG : 0;
+  for (let y = 0; y < G; y++) for (let x = 0; x < G; x++) {
+    const o = y * G + x; if (!D[o]) continue; let v = D[o];
+    v = Math.min(v, x > 0 ? D[o - 1] + 1 : 1);
+    if (y > 0) { v = Math.min(v, D[o - G] + 1); if (x > 0) v = Math.min(v, D[o - G - 1] + B); if (x < G - 1) v = Math.min(v, D[o - G + 1] + B); } else v = Math.min(v, 1);
+    D[o] = v;
+  }
+  for (let y = G - 1; y >= 0; y--) for (let x = G - 1; x >= 0; x--) {
+    const o = y * G + x; if (!D[o]) continue; let v = D[o];
+    v = Math.min(v, x < G - 1 ? D[o + 1] + 1 : 1);
+    if (y < G - 1) { v = Math.min(v, D[o + G] + 1); if (x < G - 1) v = Math.min(v, D[o + G + 1] + B); if (x > 0) v = Math.min(v, D[o + G - 1] + B); } else v = Math.min(v, 1);
+    D[o] = v;
+  }
+  return D;
+}
 function disposeGroup() {
   if (!group) return;
   group.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) { for (const k of ['map', 'bumpMap']) if (o.material[k]) o.material[k].dispose(); o.material.dispose(); } });
@@ -195,25 +213,46 @@ function build() {
       groups.push({ i, j, w, tw, T: Lh[i].T, t: Lh[i].t });
       i = j + 1;
     }
-    for (const g of groups) {
+    // Rounded plate edges: in a real plate the molecular layers get shorter towards each basal face,
+    // so the edge has a curved profile. Wherever a slab's face is exposed (the next slab is narrower),
+    // the slab is cut into thin slices whose outlines are pulled in along a quarter circle.
+    const pxPerCell = G / (2 * Rv), maxR = 6 * dz * exag;
+    groups.forEach((g, gi) => {
       const wr = Math.min(R, g.w) * 1.03 + 1;
       for (let o = 0; o < slabMask.length; o++) slabMask[o] = (mask[o] && tA[o] <= g.tw + 1e-6 && rP[o] <= wr) ? 1 : 0;
-      const sh = shapesFromMask(slabMask, G, Rv, wr);
-      if (!sh.length) continue;
-      const z0 = g.i * hz, z1 = (g.j + 1) * hz, full = g.w >= R * 0.97;
+      const z0 = g.i * hz, z1 = (g.j + 1) * hz, h = z1 - z0, full = g.w >= R * 0.97;
       let mat = plateMat;
       if (opts.colour !== 'ice' && !full) {
         const c = opts.colour === 'temp' ? tColor(g.T) : timeColor(Math.min(1, g.t / Math.max(0.001, state.time)));
         const key = c.map(v => v | 0).join(',');
         mat = matCache[key] || (matCache[key] = iceMaterial({ color: new THREE.Color(c[0] / 255, c[1] / 255, c[2] / 255) }));
       }
-      const h = z1 - z0, hh = Math.max(h * 0.985, h - 0.3);   // hair-line gap between stacked slabs: no z-fighting
-      const geo = new THREE.ExtrudeGeometry(sh, { depth: hh, bevelEnabled: false, curveSegments: 1 });
-      const nrm = geo.attributes.normal.array;
-      for (let i = 0; i < nrm.length; i += 3) if (!(Math.abs(nrm[i]) + Math.abs(nrm[i + 1]) + Math.abs(nrm[i + 2]) > 0)) { nrm[i] = 0; nrm[i + 1] = 0; nrm[i + 2] = 1; }
-      geo.translate(0, 0, -hh / 2);
-      const m = new THREE.Mesh(geo, mat); m.rotation.x = -Math.PI / 2; m.position.y = dir * (z0 + z1) / 2; group.add(m);
-    }
+      const outer = groups[gi + 1], inner = groups[gi - 1];
+      const roundOut = !outer || outer.w < 0.9 * g.w;          // outward face exposed
+      const roundIn = gi > 0 && inner.w < 0.9 * g.w;            // inward face exposed (e.g. a plate on a column)
+      let rOut = roundOut ? Math.min(maxR, roundIn ? h / 2 : h) : 0;
+      let rIn = roundIn ? Math.min(maxR, roundOut ? h / 2 : h) : 0;
+      // slices: [start, end, erosion in cells]
+      const slices = [], n = 5;
+      const core0 = z0 + rIn, core1 = z1 - rOut;
+      for (let k = 0; k < n && rIn > 0; k++) { const v = 1 - (k + 0.5) / n; slices.push([z0 + rIn * k / n, z0 + rIn * (k + 1) / n, rIn * (1 - Math.sqrt(1 - v * v))]); }
+      if (core1 > core0 + 1e-6) slices.push([core0, core1, 0]);
+      for (let k = 0; k < n && rOut > 0; k++) { const v = (k + 0.5) / n; slices.push([core1 + rOut * k / n, core1 + rOut * (k + 1) / n, rOut * (1 - Math.sqrt(1 - v * v))]); }
+      const dist = (rIn > 0 || rOut > 0) ? chamfer(slabMask, G) : null;
+      const em = new Uint8Array(G * G);
+      for (const [a0, a1, e] of slices) {
+        let m2 = slabMask;
+        if (e > 0) { const ep = e * pxPerCell; for (let o = 0; o < em.length; o++) em[o] = slabMask[o] && dist[o] > ep ? 1 : 0; m2 = em; }
+        const sh = shapesFromMask(m2, G, Rv, wr);
+        if (!sh.length) continue;
+        const t = a1 - a0, tt = Math.max(t * 0.985, t - 0.3);   // hair-line gap between stacked slices: no z-fighting
+        const geo = new THREE.ExtrudeGeometry(sh, { depth: tt, bevelEnabled: false, curveSegments: 1 });
+        const nrm = geo.attributes.normal.array;
+        for (let i = 0; i < nrm.length; i += 3) if (!(Math.abs(nrm[i]) + Math.abs(nrm[i + 1]) + Math.abs(nrm[i + 2]) > 0)) { nrm[i] = 0; nrm[i + 1] = 0; nrm[i + 2] = 1; }
+        geo.translate(0, 0, -tt / 2);
+        const m = new THREE.Mesh(geo, mat); m.rotation.x = -Math.PI / 2; m.position.y = dir * (a0 + a1) / 2; group.add(m);
+      }
+    });
   }
   const halfLen = Math.max(L.length, Lo.length) * hz;
   let coreW = R; { const ws = L.map(l => l.w).sort((x, y) => x - y); coreW = ws[ws.length >> 1]; }

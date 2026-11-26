@@ -744,9 +744,30 @@ function renderSide() {
   sctx.beginPath(); sctx.moveTo(cx, 8); sctx.lineTo(cx, H - 8); sctx.stroke(); sctx.setLineDash([]);
   sctx.fillStyle = 'rgba(159,176,216,.8)'; sctx.font = '11px system-ui'; sctx.fillText('c‑axis', cx + 5, 16);
   const dzp = side.dz * k;
+  // rounded plate edges: within a run of similar-width slices, slices near an exposed face are drawn
+  // shorter along a quarter circle (as the molecular layers of a real plate edge are)
+  const roundedWidths = L => {
+    const out = L.map(l => l.w), n = L.length;
+    for (let a = 0; a < n;) {
+      let b = a; while (b + 1 < n && Math.abs(L[b + 1].w - L[a].w) <= Math.max(1.5, 0.06 * L[a].w)) b++;
+      const w = L[a].w, len = b - a + 1;
+      const rO = (b + 1 >= n || L[b + 1].w < 0.9 * w), rI = (a > 0 && L[a - 1].w < 0.9 * w);
+      const rOut = rO ? Math.min(6, rI ? len / 2 : len) : 0, rIn = rI ? Math.min(6, rO ? len / 2 : len) : 0;
+      for (let i = a; i <= b; i++) {
+        let e = 0;
+        const dOut = b + 0.5 - i, dIn = i - a + 0.5;
+        if (rOut && dOut < rOut) { const v = 1 - dOut / rOut; e = Math.max(e, rOut * side.dz * (1 - Math.sqrt(1 - v * v))); }
+        if (rIn && dIn < rIn) { const v = 1 - dIn / rIn; e = Math.max(e, rIn * side.dz * (1 - Math.sqrt(1 - v * v))); }
+        out[i] = Math.max(0.5, w - e);
+      }
+      a = b + 1;
+    }
+    return out;
+  };
   const drawHalf = (L, dir) => {
+    const RW = roundedWidths(L);
     for (let i = 0; i < L.length; i++) {
-      const l = L[i]; const hw = l.w * k;
+      const l = L[i]; const hw = RW[i] * k;
       let col;
       if (state.view === 'temp') col = tColor(l.T);
       else if (state.view === 'time') col = timeColor(clamp(l.t / Math.max(0.001, state.time), 0, 1));
