@@ -147,6 +147,7 @@
         <button class="btn primary" id="playBtn">⏸ Pause</button>
         <button class="btn" id="resetBtn">↺ New crystal</button>
         <button class="btn" id="saveBtn">⤓ Save image</button>
+        <button class="btn" id="detailBtn" title="Grow on a grid twice as fine (2401 cells across). Crystals take several times longer to grow. Starts a new crystal.">🔍 2× detail</button>
       </div>
       <div class="row"><span class="lbl">Speed</span>
         <div class="seg" id="speedSeg"><button data-v="0.5">½×</button><button data-v="1" class="on">1×</button><button data-v="2">2×</button><button data-v="4">4×</button></div>
@@ -324,8 +325,8 @@
     const S = {
       N, c0,
       a: new Uint8Array(size), b: new Float32Array(size), c: new Float32Array(size), d: new Float32Array(size),
-      d2: new Float32Array(size), rr: new Float32Array(size), tAt: new Float32Array(size), TAt: new Float32Array(size),
-      nb: new Uint8Array(size), att: new Int32Array(size), bnd: new Int32Array(size), canon: new Int32Array(size),
+      d2: null, rr: new Float32Array(size), tAt: new Float32Array(size), TAt: new Float32Array(size),
+      nb: new Uint8Array(size), att: null, bnd: null, canon: new Int32Array(size),  // d2/att/bnd: allocated on first step
       act: null, nAct: 0, actN: -1, actAge: 0,
       steps: 0, radius: 1, time: 0,
       params: { rho: 0.6, beta: 1.6, alpha: 0.4, theta: 0.025, kappa: 0.0025, mu: 0.015, gamma: 0.0005 },
@@ -371,6 +372,7 @@
     return lo;
   }
   function step(S, T) {
+    if (!S.d2) { S.d2 = new Float32Array(S.N * S.N); S.att = new Int32Array(S.comp.length); S.bnd = new Int32Array(S.comp.length); }
     const { N, a, b, c, d, d2, rr, nb, comp } = S;
     const p = S.params, rho = p.rho;
     const Rfar = farR(S), nc = count(S, Rfar + 2.5);
@@ -505,10 +507,11 @@
 (() => {
 'use strict';
 const Sim = window.SnowSim;
-const N = 1201;
-const sim = Sim.makeSim(N);
-const MAXR = sim.maxR;
-const SC = MAXR / 97; // grid scale relative to the original 201-cell grid
+// grid size: 1201 cells across normally, 2401 with "2× detail" (see setDetail)
+let N = 1201;
+let sim = Sim.makeSim(N);
+let MAXR = sim.maxR;
+let SC = MAXR / 97; // grid scale relative to the original 201-cell grid
 
 // ---------- physical helpers ----------
 const T_MIN = -30, T_MAX = 0, S_MIN = 0, S_MAX = 0.35;
@@ -557,11 +560,12 @@ const cctx = chamber.getContext('2d');
 // is only redrawn when the crystal or conditions change. Each frame just copies the base layer and
 // adds the vapour particles.
 let CW, img, pix, pxIdx, pxR, pxPerCell, base, bctx;
-const viewR = MAXR * 1.04;
+let viewR = MAXR * 1.04;
 let chamberDirty = true, sideDirty = true, hazeClock = 0;
-function setupChamber() {
+function setupChamber(force) {
+  viewR = MAXR * 1.04;
   const want = clamp(Math.round(chamber.clientWidth * Math.min(2, window.devicePixelRatio || 1)), 320, 1400);
-  if (CW && Math.abs(want - CW) < CW * 0.1) return;
+  if (!force && CW && Math.abs(want - CW) < CW * 0.1) return;
   CW = want; chamber.width = chamber.height = CW;
   img = cctx.createImageData(CW, CW); pix = img.data;
   pxIdx = new Int32Array(CW * CW); pxR = new Float32Array(CW * CW);
@@ -706,11 +710,12 @@ function updateSideWidth(dR) {
   // the leading plate keeps pace with the flake; the shaded one falls behind and stalls
   const gain = 1.6 - 0.6 * comp;
   const grow = (L, f) => {
-    const We = endWidth(L);
+    const We = endWidth(L), plateShaped = We > 2 * L.length * side.dz;
     for (let i = 0; i < L.length; i++) {
-      // a slice counts as part of the end plate if it's one of the end slices or already nearly as wide;
-      // only genuinely narrow column cores are shaded (so a plain plate stays widest in the middle)
-      const end = i >= L.length - 4 || L[i].w >= 0.8 * We;
+      // the end slices grow as the end plate. In a plate-shaped crystal (wider than tall) every slice
+      // nearly as wide also belongs to the plate, so a plain plate stays widest in the middle; in a column
+      // the core stays shaded, so plates sprout from the ends (capped column)
+      const end = i >= L.length - 4 || (plateShaped && L[i].w >= 0.8 * We);
       const w = Math.min(R, L[i].w + dR * (end ? gain * f : wInt));
       if (w > L[i].w) { L[i].w = w; L[i].tw = state.time; sideDirty = true; } // tw: when this slice last grew sideways
     }
@@ -1130,6 +1135,26 @@ function afterSteps(n) {
   if (sim.radius >= MAXR * 0.93) state.done = true;
 }
 
+// ---------- 2× detail ----------
+// Rebuilds the model on a grid twice as fine. Growth needs roughly 8× the computing, so crystals take
+// several times longer, and memory use is about 4× higher.
+function setDetail(fine) {
+  N = fine ? 2401 : 1201;
+  sim = Sim.makeSim(N); MAXR = sim.maxR; SC = MAXR / 97; side.dz = 0.5 * SC;
+  if (worker) worker.postMessage({ type: 'init', N });
+  busy = false; needUnfold = false;
+  setupChamber(true);
+  newCrystal();
+}
+const detailBtn = document.getElementById('detailBtn');
+detailBtn.onclick = () => {
+  const fine = N === 1201;
+  setDetail(fine);
+  detailBtn.classList.toggle('on', fine);
+  detailBtn.textContent = fine ? '🔍 2× detail: on' : '🔍 2× detail';
+  if (!state.running) togglePlay();
+};
+
 // ---------- main loop ----------
 let last = performance.now();
 let trailClock = 0;
@@ -1180,7 +1205,7 @@ function frame(now) {
   if (!state.tab || state.tab === 'grow') {
     hazeClock += dt;
     if (condDirty && hazeClock > 0.1) { chamberDirty = true; condDirty = false; }
-    if (chamberDirty && now - lastBaseT > 80) { ensureUnfolded(); renderBase(); lastBaseT = now; }
+    if (chamberDirty && now - lastBaseT > (N > 1500 ? 250 : 80)) { ensureUnfolded(); renderBase(); lastBaseT = now; }  // fine grid: redraw less often
     updateParticles(dt);
     drawChamber();
     if (sideDirty) renderSide();
@@ -1438,7 +1463,8 @@ drawDiagramBase();
 layoutDiagram();
 setConditions(state.T, state.S);
 requestAnimationFrame(frame);
-window.__snow = { state, sim, side, paper, updatePaper, ensureUnfolded, attachedAt, traceLoops, dpClosed, area, tColor, timeColor, MAXR, SC, Sim, N,
+window.__snow = { state, side, paper, updatePaper, ensureUnfolded, attachedAt, traceLoops, dpClosed, area, tColor, timeColor, Sim,
+  get sim() { return sim; }, get N() { return N; }, get MAXR() { return MAXR; }, get SC() { return SC; },
   xOf, yOf, TofX, SofY, makeSlider, waterExcess, rhoV, pIce, pWater, clamp, lerp, getDiagramBase: () => { if (!diaBase) drawDiagramBase(); return diaBase; } };
 })();
 </script>
